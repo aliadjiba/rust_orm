@@ -6,6 +6,7 @@ use actix_web::Responder;
 use actix_web::web;
 use serde::Deserialize;
 use serde_json::Value;
+use crate::model::HasRelations;
 use crate::model::Model;
 use crate::model::Person;
 use crate::repository::Repo;
@@ -14,35 +15,35 @@ use surrealdb::sql::Thing;
 
 use actix_web::{HttpResponse, get, post};
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize,Deserialize)]
 struct NewPerson {
     pub name: String,
     pub address: String,
     pub phone: Vec<String>,
 }
 
-#[post("/hello")] async fn hello(repo: web::Data<Repo>, payload: web::Json<Person>) -> impl Responder {
-    let data = payload.into_inner();
-    let res = Person::query(&repo)
-    .insert(NewPerson {
-        name: data.name,
-        address: data.address,
-        phone: data.phone,
-    })
-    .await;
-    match res {
-        Ok(result) => HttpResponse::Ok().json(result),
-        Err(e) => HttpResponse::InternalServerError() .body(format!("DB error: {:?}", e)),
-    }
-}
-#[get("/hellos")] async fn hellos(repo: web::Data<Repo>) -> impl Responder {
-    let res  = Person::query(&repo)
-    .all().await;
-    match res {
-        Ok(result) => HttpResponse::Ok().json(result),
-        Err(e) => HttpResponse::InternalServerError() .body(format!("DB error: {:?}", e)),
-    }
-}
+// #[post("/hello")] async fn hello(repo: web::Data<Repo>, payload: web::Json<Person>) -> impl Responder {
+//     let data = payload.into_inner();
+//     let res = Person::query(&repo)
+//     .insert(NewPerson {
+//         name: data.name,
+//         address: data.address,
+//         phone: data.phone,
+//     })
+//     .await;
+//     match res {
+//         Ok(result) => HttpResponse::Ok().json(result),
+//         Err(e) => HttpResponse::InternalServerError() .body(format!("DB error: {:?}", e)),
+//     }
+// }
+// #[get("/hellos")] async fn hellos(repo: web::Data<Repo>) -> impl Responder {
+//     let res  = Person::query(&repo)
+//     .all().await;
+//     match res {
+//         Ok(result) => HttpResponse::Ok().json(result),
+//         Err(e) => HttpResponse::InternalServerError() .body(format!("DB error: {:?}", e)),
+//     }
+// }
 #[derive(Deserialize,Debug)] 
 struct PersonContact {
     id: Option<Thing>,
@@ -63,20 +64,51 @@ async fn main() -> std::io::Result<()> {
         match res {
         Ok(repo)=>{
             println!("connected");
-                // let _res = Person::query(&repo)
-                //     .insert(NewPerson {
+
+            //CREATE
+                // let _res = Person::insert(&repo)
+                //     .values::<NewPerson>(NewPerson {
                 //         name: "ali".to_string(),
-                //         address: "ali@mail.co".to_string(),
+                //         address: "ded@mail.co".to_string(),
                 //         phone: vec!["06123123".to_string()],
                 //     })
                 //     .await;
-                // let res: Result<Vec<Person>, repository::ErrorIO>  = Person::query(&repo)
-                // .select(["id", "email","name","address","phone"])
-                // .all().await;
-                let res: Result<Vec<PersonContact>, repository::ErrorIO>  = Person::query(&repo)
-                .select(["id", "address","phone"])
-                .all_as::<PersonContact>().await;
-                print!("{:#?}",res.unwrap());
+
+            //SELECT *
+                let res: Result<Vec<Person>, repository::ErrorIO>  = Person::query(&repo)
+                .select(["id", "email","name","address","phone"])
+                .all().await;
+            //SELECT COSTUM
+                // let res: Result<Vec<PersonContact>, repository::ErrorIO>  = Person::query(&repo)
+                // .select(["id", "address","phone"])
+                // .all_as::<PersonContact>().await;
+            //SELECT WHERE
+                // let res= Person::query(&repo).where_eq("phone", vec!["06123123".to_string()]).all().await; //.all_as::<PersonContact>()
+                // print!("{:#?}",res.unwrap());
+            //UPDATE
+                // let res: Result<Person, repository::ErrorIO> = Person::update(&repo)
+                // .set("name", "ded")
+                // .where_eq("address", "ded@mail.co")
+                // .update_as()
+                // .await;
+            //DELETE
+            // let res = Person::delete(&repo)
+            //     .where_eq("address", "ali@mail.co")
+            //     .exec()
+            //     .await;
+
+            //SELECT ONE
+                let res: Result<Option<Person>, repository::ErrorIO>  = Person::query(&repo)
+                    .where_eq("address", "ded@mail.co")
+                    .one()
+                    .await;
+                // let person=res.unwrap().unwrap();
+            // let res = Person::has_many(&repo, "person_id", person.id.clone())
+            //     .where_eq("active", true)
+            //     .all()
+            //     .await
+            //     .expect("Failed to fetch contacts");
+                print!("{:#?}",res);
              Ok(())
         },
         Err(e)=>{

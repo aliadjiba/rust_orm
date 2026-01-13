@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::model::HasRelations;
+
 use super::Model;
 use surrealdb::sql::Thing;
 
@@ -16,6 +18,7 @@ impl Model for Person {
         "person"
     }
 }
+impl HasRelations for Person {}
 
 // Manually implement Default
 impl Default for Person {
