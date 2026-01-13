@@ -1,5 +1,6 @@
 use std::future::Future;
 
+use serde::Deserialize;
 use serde::{de::DeserializeOwned, Serialize};
 use surrealdb::sql::Thing;
 use surrealdb::{Error, Surreal};
@@ -9,7 +10,6 @@ use erased_serde::Serialize as ErasedSerialize;
 use std::marker::PhantomData;
 pub trait Model: Sized + DeserializeOwned {
     fn table_name() -> &'static str;
-
     fn query<'a>(repo: &'a Repo) -> QueryBuilder<'a, Self> {
         QueryBuilder::new(repo)
     }
@@ -42,6 +42,8 @@ pub struct QueryBuilder<'a, M> {
     limit: Option<u64>,
     offset: Option<u64>,
     _marker: PhantomData<M>,
+    sets: Vec<String>,        // UPDATE
+    inserts: Vec<String>,     // INSERT / UPSERT
 }
 
 impl<'a, M: Model> QueryBuilder<'a, M> {
@@ -54,28 +56,169 @@ impl<'a, M: Model> QueryBuilder<'a, M> {
             bindings: vec![],
             order_by: None,
             limit: None,
+            sets: vec![],
+            inserts: vec![],
             offset: None,
             _marker: PhantomData,
         }
     }
-pub async fn insert<S>(self, data: S) -> Result<M, ErrorIO>
+    pub fn set<V>(mut self, field: &str, value: V) -> Self
+    where
+        V: Serialize + Send + 'static,
+    {
+        let key = format!("set_{}", self.bindings.len());
+
+        self.sets.push(format!("{field} = ${key}"));
+
+        self.bindings.push((
+            key,
+            Box::new(value) as Box<dyn ErasedSerialize + Send>,
+        ));
+
+        self
+    }
+    
+    pub async fn all_as<T>(self) -> Result<Vec<T>, ErrorIO>
+    where
+        T: for<'de> Deserialize<'de>,
+    {
+        let select = self
+            .select
+            .map(|s| s.join(", "))
+            .unwrap_or_else(|| "*".to_string());
+
+        let mut sql = format!("SELECT {} FROM {}", select, M::table_name());
+
+        if !self.where_and.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&self.where_and.join(" AND "));
+        }
+
+        let mut query = self.repo.db.query(sql);
+
+        for (k, v) in self.bindings {
+            query = query.bind((k, v));
+        }
+
+        let mut response = query.await.map_err(ErrorIO::from)?;
+        let data: Vec<T> = response.take(0).map_err(ErrorIO::from)?;
+
+        Ok(data)
+    }
+    
+    pub async fn insert<S>(self, data: S) -> Result<M, ErrorIO>
     where
         S: Serialize + Send + 'static,
     {
         let sql = format!("CREATE {} CONTENT $data", M::table_name());
 
-        // Bind data
+        // Bind the data
         let mut query = self.repo.db.query(sql).bind(("data", data));
 
         // Execute
         let mut response = query.await.map_err(ErrorIO::from)?;
 
-        // FIX: deserialize from response -> Vec<M> first
+        // Deserialize into Vec<M>
         let records: Vec<M> = response.take(0).map_err(ErrorIO::from)?;
 
-        // Extract first record
-        records.into_iter().next().ok_or_else(|| ErrorIO::Db("No record returned".to_string()))
+        // Return first record
+        records
+            .into_iter()
+            .next()
+            .ok_or_else(|| ErrorIO::Db("No record returned".to_string()))
     }
+
+        /// Insert and return as a specific type (DTO / projection)
+    pub async fn insert_as<T, S>(self, data: S) -> Result<T, ErrorIO>
+    where
+        S: Serialize + Send + 'static,
+        T: for<'de> Deserialize<'de>,
+    {
+        let sql = format!("CREATE {} CONTENT $data", M::table_name());
+
+        let mut query = self.repo.db.query(sql).bind(("data", data));
+
+        let mut response = query.await.map_err(ErrorIO::from)?;
+
+        let records: Vec<T> = response.take(0).map_err(ErrorIO::from)?;
+
+        records
+            .into_iter()
+            .next()
+            .ok_or_else(|| ErrorIO::Db("No record returned".to_string()))
+    }
+    pub async fn delete(self) -> Result<usize, ErrorIO>
+where
+    M: Model,
+{
+    let mut sql = format!("DELETE FROM {}", M::table_name());
+
+    if !self.where_and.is_empty() {
+        sql.push_str(" WHERE ");
+        sql.push_str(&self.where_and.join(" AND "));
+    }
+
+    let mut query = self.repo.db.query(sql);
+
+    for (k, v) in self.bindings {
+        query = query.bind((k, v));
+    }
+
+    // SurrealDB DELETE returns a Vec<Value> of deleted records
+    let mut response = query.await.map_err(ErrorIO::from)?;
+    let records: Vec<surrealdb::Value> = response.take(0).map_err(ErrorIO::from)?;
+
+    Ok(records.len())
+}
+    pub async fn upsert_as<T>(self) -> Result<T, ErrorIO>
+where
+    M: Model,
+    T: for<'de> Deserialize<'de>,
+{
+    if self.inserts.is_empty() {
+        return Err(ErrorIO::Db("No values provided".to_string()));
+    }
+
+    let mut sql = format!(
+        "UPSERT INTO {} {}",
+        M::table_name(),
+        self.inserts.join(", ")
+    );
+
+    if !self.where_and.is_empty() {
+        sql.push_str(" WHERE ");
+        sql.push_str(&self.where_and.join(" AND "));
+    }
+
+    sql.push_str(" RETURN *");
+
+    let mut query = self.repo.db.query(sql);
+
+    for (k, v) in self.bindings {
+        query = query.bind((k, v));
+    }
+
+    let mut response = query.await.map_err(ErrorIO::from)?;
+    let record: Option<T> = response.take(0).map_err(ErrorIO::from)?;
+
+    record.ok_or_else(|| ErrorIO::Db("Upsert failed".to_string()))
+}
+
+
+    pub fn values<V>(mut self, data: V) -> Self
+where
+    V: Serialize + Send + 'static,
+{
+    let key = "data".to_string();
+
+    self.inserts.push(format!("${key}"));
+    self.bindings.push((
+        key,
+        Box::new(data) as Box<dyn ErasedSerialize + Send>,
+    ));
+
+    self
+}
     /* ---------------- SELECT ---------------- */
 
     pub fn select<I, S>(mut self, fields: I) -> Self
@@ -89,11 +232,25 @@ pub async fn insert<S>(self, data: S) -> Result<M, ErrorIO>
 
     /* ---------------- WHERE (AND) ---------------- */
 
+    // pub fn where_eq<V>(mut self, field: &str, value: V) -> Self
+    // where
+    //     V: Serialize + Send + 'static,
+    // {
+    //     self.push_condition(ConditionTarget::And, field, "=", value);
+    //     self
+    // }
     pub fn where_eq<V>(mut self, field: &str, value: V) -> Self
     where
         V: Serialize + Send + 'static,
     {
-        self.push_condition(ConditionTarget::And, field, "=", value);
+        let key = format!("w_{}", self.bindings.len());
+
+        self.where_and.push(format!("{field} = ${key}"));
+        self.bindings.push((
+            key,
+            Box::new(value) as Box<dyn ErasedSerialize + Send>,
+        ));
+
         self
     }
     pub fn where_gt<V>(mut self, field: &str, value: V) -> Self

@@ -4,10 +4,14 @@ use actix_web::App;
 use actix_web::HttpServer;
 use actix_web::Responder;
 use actix_web::web;
+use serde::Deserialize;
+use serde_json::Value;
 use crate::model::Model;
 use crate::model::Person;
 use crate::repository::Repo;
 use crate::repository::database_starter;
+use surrealdb::sql::Thing;
+
 use actix_web::{HttpResponse, get, post};
 
 #[derive(serde::Serialize)]
@@ -39,10 +43,15 @@ struct NewPerson {
         Err(e) => HttpResponse::InternalServerError() .body(format!("DB error: {:?}", e)),
     }
 }
-
+#[derive(Deserialize,Debug)] 
+struct PersonContact {
+    id: Option<Thing>,
+    address: String,
+    phone: Vec<String>
+}
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    database_starter().await;
+    // database_starter().await;
     let res = Repo::connect(
         "localhost:8000", // url
         "namespace", // ns
@@ -54,17 +63,20 @@ async fn main() -> std::io::Result<()> {
         match res {
         Ok(repo)=>{
             println!("connected");
-                let _res = Person::query(&repo)
-                    .insert(NewPerson {
-                        name: "ali".to_string(),
-                        address: "ali@mail.co".to_string(),
-                        phone: vec!["06123123".to_string()],
-                    })
-                    .await;
-                let res  = Person::query(&repo)
-                .select(["id", "email","name","address","phone"])
-                .all().await;
-                print!("{:#?}",res);
+                // let _res = Person::query(&repo)
+                //     .insert(NewPerson {
+                //         name: "ali".to_string(),
+                //         address: "ali@mail.co".to_string(),
+                //         phone: vec!["06123123".to_string()],
+                //     })
+                //     .await;
+                // let res: Result<Vec<Person>, repository::ErrorIO>  = Person::query(&repo)
+                // .select(["id", "email","name","address","phone"])
+                // .all().await;
+                let res: Result<Vec<PersonContact>, repository::ErrorIO>  = Person::query(&repo)
+                .select(["id", "address","phone"])
+                .all_as::<PersonContact>().await;
+                print!("{:#?}",res.unwrap());
              Ok(())
         },
         Err(e)=>{
