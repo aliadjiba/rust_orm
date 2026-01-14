@@ -99,7 +99,7 @@ pub struct Query<'a, M> {
     repo: &'a Repo,
     state: SqlState,
     select: Option<Vec<String>>,
-    order_by: Option<(String, Order)>,
+    order: Option<String>,
     bindings: Vec<(String, Box<dyn erased_serde::Serialize + Send>)>,
     limit: Option<u64>,
     where_and: Vec<String>,
@@ -114,7 +114,7 @@ impl<'a, M: Model> Query<'a, M> {
             repo,
             state: SqlState::new(),
             select: None,
-            order_by: None,
+            order: None,
             table_name_override: None,
             bindings:vec![],
             where_or: vec![],
@@ -123,6 +123,23 @@ impl<'a, M: Model> Query<'a, M> {
             offset: None,
             _m: PhantomData,
         }
+    }
+    pub async fn first(self) -> Result<Option<M>, ErrorIO> {
+        self.limit(1)
+            .all()
+            .await
+            .map(|mut v| v.pop())
+    }
+    pub fn order_by(mut self, column: &str, direction: &str) -> Self {
+        self.order = Some(format!("{} {}", column, direction));
+        self
+    }
+    pub fn latest(self) -> Self {
+        self.order_by("created_at", "DESC")
+    }
+
+    pub fn oldest(self) -> Self {
+        self.order_by("created_at", "ASC")
     }
     pub fn from(repo: &'a Repo) -> Self {
         Self::new(repo)
@@ -356,6 +373,9 @@ where
     Parent: Model,
     Child: Model + for<'de> Deserialize<'de>,
 {
+    pub fn query(&mut self) -> &mut Query<'a, Child> {
+    &mut self.query
+    }
     pub fn where_eq<V>(mut self, field: &str, value: V) -> Self
     where
         V: Serialize + Send + 'static,
@@ -402,22 +422,18 @@ where
 pub trait HasRelations: Model {
     fn has_many<'a, Child>(
         repo: &'a Repo,
-        // local_key: &str,
         foreign_key: &str,
-        local_value: impl Serialize + Send + 'static,
     ) -> HasMany<'a, Self, Child>
     where
         Child: Model,
     {
-        let query = Query::<Child>::new(repo)
-            .where_eq(foreign_key, local_value);
+        let query = Query::<Child>::new(repo);
 
         HasMany {
             query,
             _p: PhantomData,
         }
     }
-
     fn belongs_to<'a, Parent>(
         repo: &'a Repo,
         owner_key: &str,
@@ -476,5 +492,30 @@ where
     }
     pub async fn first(self) -> Result<Option<Child>, ErrorIO> {
         self.query.limit(1).all().await.map(|mut v| v.pop())
+    }
+}
+
+
+use std::ops::{Deref, DerefMut};
+
+impl<'a, Parent, Child> Deref for HasMany<'a, Parent, Child>
+where
+    Parent: Model,
+    Child: Model,
+{
+    type Target = Query<'a, Child>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.query
+    }
+}
+
+impl<'a, Parent, Child> DerefMut for HasMany<'a, Parent, Child>
+where
+    Parent: Model,
+    Child: Model,
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.query
     }
 }

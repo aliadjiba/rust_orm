@@ -1,13 +1,11 @@
 use serde::{Deserialize, Serialize};
-
-use crate::model::HasRelations;
-
+use crate::{model::{HasMany, HasRelations, Post}, repository::Repo};
 use super::Model;
 use surrealdb::sql::Thing;
 
 #[derive(Debug, Serialize, Deserialize,Clone)]
 pub struct Person {
-    pub id: Option<Thing>,
+    pub id: Thing,
     pub name: String,
     pub address: String,
     pub phone: Vec<String>,
@@ -20,14 +18,9 @@ impl Model for Person {
 }
 impl HasRelations for Person {}
 
-// Manually implement Default
-impl Default for Person {
-    fn default() -> Self {
-        Self {
-            id: None,
-            name: "".to_string(),
-            address: "".to_string(),
-            phone: vec![],
-        }
+impl Person {
+    pub fn posts<'a>(&self, repo: &'a Repo) -> HasMany<'a, Person, Post> {
+        Person::has_many::<Post>(repo, "person_id")
+            .where_eq("person_id", self.id.clone())
     }
 }
