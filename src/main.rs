@@ -67,7 +67,7 @@ async fn main() -> std::io::Result<()> {
                         .limit(10)
                         .all()
                     .await.unwrap();
-                    print!("{:#?}",post);
+                    // print!("{}",post);
             //-------SELECT * POSTS OF A PERSON
                 // let posts = person.posts(&repo).all().await;
                 //     print!("{:#?}",posts);

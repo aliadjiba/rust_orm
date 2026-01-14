@@ -1,19 +1,40 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
-use crate::{model::{HasMany, HasRelations, Post}, repository::Repo};
+use crate::{model::{HasMany, HasRelations, Post, Relations}, repository::Repo};
 use super::Model;
 use surrealdb::sql::Thing;
 
-#[derive(Debug, Serialize, Deserialize,Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct Person {
     pub id: Thing,
     pub name: String,
     pub address: String,
     pub phone: Vec<String>,
+    #[serde(skip)]
+    relations: Relations,
 }
-
+impl Clone for Person {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            address:self.address.clone(),
+            phone:self.phone.clone(),
+            relations: Relations::new(), // 💡 reset cache
+        }
+    }
+}
 impl Model for Person {
     fn table_name() -> &'static str {
         "person"
+    }
+    fn relations(&self) -> &Relations {
+        &self.relations
+    }
+
+    fn relations_mut(&mut self) -> &mut Relations {
+        &mut self.relations
     }
 }
 impl HasRelations for Person {}

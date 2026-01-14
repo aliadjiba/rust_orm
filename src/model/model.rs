@@ -2,6 +2,8 @@ use serde::Deserialize;
 use serde::{de::DeserializeOwned, Serialize};
 use crate::repository::{ErrorIO, Repo};
 use erased_serde::Serialize as ErasedSerialize;
+use std::any::{Any, TypeId};
+use std::collections::HashMap;
 use std::marker::PhantomData;
 pub struct CachedRelation<Child> {
     cache: std::collections::HashMap<String, Vec<Child>>,
@@ -24,13 +26,13 @@ pub struct EagerLoad<Parent, R> {
 
 pub trait Relation<Parent> {
     type Child: Model;
-
     fn load(&self, parent_ids: Vec<String>, repo: &Repo) -> Query<'_, Self::Child>;
 }
 
 pub trait Model: Sized + DeserializeOwned {
     fn table_name() -> &'static str;
-
+    fn relations(&self) -> &Relations;
+    fn relations_mut(&mut self) -> &mut Relations;
     fn with<'a, R>(self, relation: R) -> EagerLoad<Self, R>
     where
         R: Relation<Self>,
@@ -517,5 +519,25 @@ where
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.query
+    }
+}
+#[derive(Default)]
+pub struct Relations {
+    data: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
+}
+
+impl Relations {
+    pub fn new() -> Self {
+        Self { data: HashMap::new() }
+    }
+
+    pub fn insert<T: 'static + Send + Sync>(&mut self, value: T) {
+        self.data.insert(TypeId::of::<T>(), Box::new(value));
+    }
+
+    pub fn get<T: 'static>(&self) -> Option<&T> {
+        self.data
+            .get(&TypeId::of::<T>())
+            .and_then(|v| v.downcast_ref::<T>())
     }
 }
