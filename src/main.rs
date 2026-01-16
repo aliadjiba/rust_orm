@@ -1,20 +1,93 @@
 mod model;
 mod person;
+mod category;
+mod post;
 mod repository;
-use serde::Deserialize;
 use serde::Serialize;
+use crate::category::Category;
 // use crate::model::HasRelations;
 use crate::model::*;
+use crate::person::Person;
+use crate::post::Post;
 // use crate::model::Person;
 // use crate::model::Post;
 use crate::repository::Repo;
-// use surrealdb::sql::Thing;
+use surrealdb::sql::Thing;
+#[derive(Serialize)]
+struct NewPerson{
+    name:String
+}
 
-
+#[derive(Serialize)]
+struct NewPost{
+    title:String,
+    person_id:Thing,
+}
+#[derive(Serialize)]
+struct NewCategory{
+    name:String,
+}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    let res = Repo::connect(
+        "localhost:8000", // url
+        "namespace", // ns
+        "database", // db
+        "root", // user
+        "root", // pass
+    ).await;
     println!("hello am working");
+    match res {
+        Ok(repo)=>{
+            println!("connected");
+            //-------CREATE PERSON
+                let person = Person::insert(&repo)
+                    .values::<NewPerson>(NewPerson {
+                        name: "ali".to_string(),
+                    })
+                    .await.unwrap();
+                print!("THE PERSON: \n{:#?}",person);
+            //-------CREATE POST
+                let post = Post::insert(&repo)
+                    .values::<NewPost>(NewPost {
+                        title: "title of the post".to_string(),
+                        person_id: person.id.clone(),
+                    })
+                    .await.unwrap();
+                print!("THE POST: \n{:#?}",post);
+            //-------CREATE CATEGORY
+                let category = Category::insert(&repo)
+                    .values::<NewCategory>(NewCategory {
+                        name: "Tech".to_string(),
+                    })
+                    .await.unwrap();
+                print!("THE CATEGORY: \n{:#?}",category);
+            //-------LINK CATEGORY TO POST
+                    post.categories(&repo)
+                    .attach(&category)
+                    .await
+                    .unwrap();
+            //-------SELECT POSTS OF A PERSON
+                let posts = person.posts(&repo).all().await;
+                    print!("THE POSTS OF A PERSON: \n{:#?}",posts.unwrap());
+            //-------SELECT PERSON OF A POST
+                let person_of_post = post.person(&repo).one().await;
+                    print!("THE PERSON OF A POST: \n{:#?}",person_of_post.unwrap());
+            //-------SELECT POSTS OF A CATEGORY
+                let posts_of_category = category.posts(&repo).all().await;
+                    print!("THE POSTS OF A CATEGORY: \n{:#?}",posts_of_category.unwrap());
+            //-------SELECT CATEGORIES OF A POST
+                let categories_of_post = post.categories(&repo)
+                    .load().await
+                    .unwrap().all().await;
+                    print!("THE CATEGORIES OF A POST: \n{:#?}",categories_of_post.unwrap());
+
+        }
+        Err(e)=>{
+            println!("exit with error: {}",e);
+        }
+    }
     Ok(())
 }
 

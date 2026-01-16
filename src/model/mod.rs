@@ -4,11 +4,13 @@ mod delete;
 mod insert;
 mod relations;
 mod model;
+pub use insert::Insert;
+// pub use insert::Insert;
 pub use model::*;
 use serde::Serialize;
 use erased_serde::Serialize as ErasedSerialize;
 use std::sync::Arc;
-pub use relations::Relations;
+pub use relations::{HasMany,BelongsTo,BelongsToMany,HasParent};
 pub struct Page<T> {
     pub data: Vec<T>,
     pub page: u64,

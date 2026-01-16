@@ -1,26 +1,38 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
-    any::{Any, TypeId},
     collections::HashMap,
     marker::PhantomData,
-    ops::{Deref, DerefMut},
+    ops::{Deref, DerefMut}, sync::Arc,
 };
-use crate::{model::{Model, query::{Query, QueryLike}}, repository::{ErrorIO, Repo}};
+use surrealdb::sql::Thing;
 
-#[derive(Default)]
-pub struct Relations {
-    data: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
+use crate::{model::{Model, query::{Query, QueryLike}}, repository::{ErrorIO, Repo}};
+use async_trait::async_trait;
+
+#[async_trait]
+pub trait EagerLoad<P>: Send + Sync {
+    type Child: Model + Send + Sync + 'static;
+
+    async fn load(
+        &self,
+        parents: &[P],
+        repo: &Repo,
+    ) -> Result<HashMap<String, Arc<Vec<Self::Child>>>, ErrorIO>;
 }
 
-impl Relations {
-    pub fn insert<T: 'static + Send + Sync>(&mut self, value: T) {
-        self.data.insert(TypeId::of::<T>(), Box::new(value));
-    }
+pub trait IntoQuery<'a> {
+    type Model: Model;
+    fn into_query(self) -> Query<'a, Self::Model>;
+}
+impl<'a, P, C> IntoQuery<'a> for HasMany<'a, P, C>
+where
+    P: Model,
+    C: Model,
+{
+    type Model = C;
 
-    pub fn get<T: 'static>(&self) -> Option<&T> {
-        self.data
-            .get(&TypeId::of::<T>())
-            .and_then(|v| v.downcast_ref())
+    fn into_query(self) -> Query<'a, C> {
+        self.query
     }
 }
 
@@ -91,9 +103,45 @@ where
 }
 
 
+#[async_trait]
+impl<'a, Parent, Child> EagerLoad<Parent> for HasMany<'a, Parent, Child>
+where
+    Parent: Model + Send + Sync,
+    Child: Model + HasParent<Parent> + Send + Sync + 'static,
+{
+    type Child = Child;
 
+    async fn load(
+        &self,
+        parents: &[Parent],
+        repo: &Repo,
+    ) -> Result<HashMap<String, Arc<Vec<Self::Child>>>, ErrorIO> {
+        let ids: Vec<String> =
+            parents.iter().map(|p| p.id().to_string()).collect();
 
+        let children = Query::<Child>::new(repo)
+            .where_in("parent_id", ids)
+            .all()
+            .await?;
 
+        let mut map: HashMap<String, Vec<Child>> = HashMap::new();
+
+        for child in children {
+            map.entry(child.parent_id().to_string())
+                .or_insert_with(Vec::new)
+                .push(child);
+        }
+
+        Ok(map
+            .into_iter()
+            .map(|(k, v)| (k, Arc::new(v)))
+            .collect())
+            }
+}
+
+pub trait HasParent<Parent: Model> {
+    fn parent_id(&self) -> &Thing;
+}
 /* ===========================
    BELONGS TO
 =========================== */
@@ -134,12 +182,17 @@ where
 
 pub struct BelongsToMany<'a, Parent, Child> {
     repo: &'a Repo,
-    parent_id: String,
     pivot_table: String,
-    foreign_key: String,
-    related_key: String,
+    parent_id: Thing,
     _p: PhantomData<Parent>,
     _c: PhantomData<Child>,
+}
+
+fn pivot_table<P: Model, C: Model>() -> String {
+    // Alphabetical order: "category_post" instead of "post_category"
+    let mut names = vec![P::table_name().to_lowercase(), C::table_name().to_lowercase()];
+    names.sort();
+    names.join("_")
 }
 
 impl<'a, Parent, Child> BelongsToMany<'a, Parent, Child>
@@ -147,31 +200,70 @@ where
     Parent: Model,
     Child: Model,
 {
-        pub(super)  fn new(
+        pub fn new(
         repo: &'a Repo,
-        parent_id: impl ToString,
-        pivot_table: impl ToString,
-        foreign_key: impl ToString,
-        related_key: impl ToString,
+        id: Thing,
     ) -> Self {
+        let pivot_table:String = pivot_table::<Parent, Child>();
         Self {
             repo,
-            parent_id: parent_id.to_string(),
-            pivot_table: pivot_table.to_string(),
-            foreign_key: foreign_key.to_string(),
-            related_key: related_key.to_string(),
+            parent_id: id,
+            pivot_table: pivot_table,
             _p: PhantomData,
-            _c: PhantomData, // ✅ FIX
+            _c: PhantomData,
         }
     }
-    pub async fn load(self) -> Result<Query<'a, Child>, ErrorIO> {
-        let related_ids: Vec<String> = Query::<Child>::new(self.repo)
-            .select([self.related_key.clone()])
-            .from_table(&self.pivot_table)
-            .where_eq(&self.foreign_key, self.parent_id)
-            .all_as::<String>()
+    /// Attach a child to the parent (insert into pivot table)
+    pub async fn attach(&self, child: &impl Model) -> Result<(), ErrorIO> {
+        self.repo.db
+            .query(&format!(
+                "INSERT INTO {} (parent, child) VALUES ($parent, $child)",
+                self.pivot_table
+            ))
+            .bind(("parent", self.parent_id.clone()))  // parent_id column
+            .bind(("child", child.id()))       // child_id column
             .await?;
-
-        Ok(Query::new(self.repo).where_in("id", related_ids))
+        Ok(())
     }
+
+    /// Detach a child from the parent (delete from pivot table)
+    pub async fn detach(&self, child_id: &Thing) -> Result<(), ErrorIO> {
+        self.repo.db
+            .query(&format!(
+                "DELETE FROM {} WHERE parent = $parent AND child = $child",
+                 self.pivot_table
+            ))
+            .bind(("parent", self.parent_id.clone()))
+            .bind(("child", child_id.clone()))
+            .await?;
+    Ok(())
+    }
+
+    pub async fn load(self) -> Result<Query<'a, Child>, ErrorIO> {
+        let res = Query::<Child>::new(self.repo)
+            .from_table(&self.pivot_table)
+            .where_eq(
+                "parent",
+                self.parent_id.clone()
+            )
+            .all_as::<BelongsToManyType>()
+            .await;
+        match res {
+            Ok(related_ids) => {
+                let related_ids: Vec<Thing> = related_ids.into_iter().map(|r| r.child).collect();
+                Ok(Query::new(self.repo).where_in("id", related_ids))
+            },
+            Err(e) => {
+                println!("Error loading BelongsToMany: {:?}", e);
+                Err(e)
+            },
+        }
+        
+    }
+}
+#[derive(Serialize,Deserialize,Debug)]
+pub struct BelongsToManyType{
+    id: Thing,
+    parent: Thing,
+    child: Thing,
 }
