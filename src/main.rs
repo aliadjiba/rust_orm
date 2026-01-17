@@ -56,6 +56,16 @@ async fn main() -> std::io::Result<()> {
                     })
                     .await.unwrap();
                 print!("THE POST: \n{:#?}",post);
+            //-------EDIT PERSON
+            let updated_person = Person::update(&repo)
+                .where_eq("id", person.id.clone())
+                .values(NewPerson {
+                    name: "ali edited".to_string(),
+                })
+                .await
+                .unwrap();
+
+            println!("{:#?}", updated_person);
             //-------CREATE CATEGORY
                 let category = Category::insert(&repo)
                     .values::<NewCategory>(NewCategory {

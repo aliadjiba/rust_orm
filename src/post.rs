@@ -1,6 +1,6 @@
 // use orm_macros::Model;
 use serde::{Deserialize, Serialize};
-use crate::{category::Category, model::{BelongsTo, BelongsToMany, HasParent, Model}, person::Person, repository::Repo}; //Relations, HasMany
+use crate::{category::Category, model::{BelongsTo, BelongsToMany, HasParent, Model}, person::Person, repository::Repo};
 use surrealdb::sql::Thing;
 
 #[derive(Serialize,Deserialize,Debug)]
@@ -8,20 +8,12 @@ pub struct Post {
     pub id: Thing,
     pub title: String,
     pub person_id: Thing,
-    // #[serde(skip)]
-    // pub relations: Relations,
 }
 
 impl Model for Post {
     fn table_name() -> &'static str {
         "post"
     }
-    // fn relations(&self) -> &Relations {
-    //     &self.relations
-    // }
-    // fn relations_mut(&mut self) -> &mut Relations {
-    //     &mut self.relations
-    // }
     fn id(&self) -> Thing {
         self.id.clone()
     }
