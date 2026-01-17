@@ -11,7 +11,7 @@ use crate::person::Person;
 use crate::post::Post;
 // use crate::model::Person;
 // use crate::model::Post;
-use crate::repository::Repo;
+use crate::repository::{ErrorIO, Repo};
 use surrealdb::sql::Thing;
 #[derive(Serialize)]
 struct NewPerson{
@@ -57,15 +57,11 @@ async fn main() -> std::io::Result<()> {
                     .await.unwrap();
                 print!("THE POST: \n{:#?}",post);
             //-------EDIT PERSON
-            let updated_person = Person::update(&repo)
-                .where_eq("id", person.id.clone())
-                .values(NewPerson {
-                    name: "ali edited".to_string(),
-                })
-                .await
-                .unwrap();
-
-            println!("{:#?}", updated_person);
+            let updated_person: Result<Person, ErrorIO> = Person::update(&repo)
+            .set("name", "ali edited")
+            .where_eq("id", person.id.clone())
+            .update_as::<Person>().await;
+            println!("THE UPDATED PERSON: \n{:#?}",updated_person.unwrap());
             //-------CREATE CATEGORY
                 let category = Category::insert(&repo)
                     .values::<NewCategory>(NewCategory {

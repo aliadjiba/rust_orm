@@ -147,10 +147,9 @@ pub trait HasParent<Parent: Model> {
 =========================== */
 
 pub struct BelongsTo<'a, Parent, Child> {
-    query: Query<'a, Parent>,
-    _c: PhantomData<Child>,
+    query: Query<'a, Child>, // ✅ QUERY CHILD
+    _p: PhantomData<Parent>,
 }
-
 impl<'a, Parent, Child> BelongsTo<'a, Parent, Child>
 where
     Parent: Model,
@@ -158,16 +157,17 @@ where
 {
     pub fn new(
         repo: &'a Repo,
-        owner_key: &str,
-        owner_value: impl Serialize + Send + Sync + 'static,
+        child_key: &str,
+        child_value: impl Serialize + Send + Sync + 'static,
     ) -> Self {
         Self {
-            query: Query::new(repo).where_eq(owner_key, owner_value),
-            _c: PhantomData,
+            query: Query::<Child>::new(repo)
+                .where_eq(child_key, child_value),
+            _p: PhantomData,
         }
     }
 
-    pub async fn one(self) -> Result<Option<Parent>, ErrorIO> {
+    pub async fn one(self) -> Result<Option<Child>, ErrorIO> {
         self.query.first().await
     }
 }

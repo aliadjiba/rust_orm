@@ -25,7 +25,11 @@ impl HasParent<Person> for Post {
 }
 impl Post {
     pub fn person<'a>(&self, repo: &'a Repo) -> BelongsTo<'a, Post, Person> {
-        BelongsTo::new(repo, "person_id", self.person_id.clone())
+        BelongsTo::new(
+            repo,
+            "id",                 // Person.id
+            self.person_id.clone() // Post.person_id
+        )
     }
 
     pub fn categories<'a>(&self, repo: &'a Repo) -> BelongsToMany<'a, Post, Category> {
