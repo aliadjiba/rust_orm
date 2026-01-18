@@ -1,6 +1,6 @@
 // use orm_macros::Model;
 use serde::{Deserialize, Serialize};
-use crate::{category::Category, model::{BelongsTo, BelongsToMany, HasParent, Model}, person::Person, repository::Repo};
+use crate::{category::Category, model::{BelongsTo, BelongsToMany, HasParent, Model, Query}, person::Person, repository::Repo};
 use surrealdb::sql::Thing;
 
 #[derive(Serialize,Deserialize,Debug)]
@@ -16,6 +16,9 @@ impl Model for Post {
     }
     fn id(&self) -> Thing {
         self.id.clone()
+    }
+        fn query<'a>(repo: &'a Repo) -> Query<'a, Self> {
+        Query::new(repo)
     }
 }
 impl HasParent<Person> for Post {

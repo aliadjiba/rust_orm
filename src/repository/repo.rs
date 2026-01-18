@@ -6,8 +6,6 @@ use super::errors::{Error as ErrorIO};
 pub type DbClient = Arc<Surreal<Client>>;
 #[derive(Clone)]
 pub struct Repo { pub db: DbClient, }
-
-
 impl Repo{
     pub async fn connect(url: &str, ns: &str, db: &str, user: &str, pass: &str)->Result<Self, ErrorIO>{
         let client = Surreal::new::<Ws>(url).await.map_err(ErrorIO::from)?;

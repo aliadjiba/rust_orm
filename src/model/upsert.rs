@@ -32,6 +32,18 @@ impl<'a, M: Model> Update<'a, M> {
         self.sets.push(format!("{field} = ${key}"));
         self
     }
+    pub fn values<I, S, V>(mut self, items: I) -> Self
+    where
+        I: IntoIterator<Item = (S, V)>,
+        S: Into<String>,
+        V: Serialize + Send + Sync + 'static,
+    {
+        for (field, value) in items {
+            let key = self.state.bind(value);
+            self.sets.push(format!("{} = ${}", field.into(), key));
+        }
+        self
+    }
 
     pub fn where_eq<V: Serialize + Send + Sync + 'static>(
         mut self,

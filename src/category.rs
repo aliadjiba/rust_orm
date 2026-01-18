@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::{model::{HasMany, Model}, post::Post, repository::Repo};
+use crate::{model::{HasMany, Model, Query}, post::Post, repository::Repo};
 use surrealdb::sql::Thing;
 
 #[derive(Serialize,Deserialize,Debug)]
