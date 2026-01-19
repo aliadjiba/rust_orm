@@ -72,7 +72,7 @@ where
             _p: PhantomData,
         }
     }
-    pub async fn all(self) -> Result<Vec<Child>, ErrorIO> {
+    pub async fn all(&mut self) -> Result<Vec<Child>, ErrorIO> {
         self.query.all().await
     }
     pub async fn first(self) -> Result<Option<Child>, ErrorIO> {

@@ -1,4 +1,4 @@
 mod errors;
 mod repo;
-pub use repo::Repo;
+pub use repo::{*};
 pub use errors::{Error as ErrorIO};
