@@ -26,6 +26,14 @@ impl<'a, M: Model> Delete<'a, M> {
         self.state.where_and.push(format!("{field} = ${key}"));
         self
     }
+    pub fn by_id<V: Serialize + Send + Sync + 'static,>(
+        mut self,
+        value: V,
+    ) -> Self {
+        let key = self.state.bind(value);
+        self.state.where_and.push(format!("id = ${key}"));
+        self
+    }
 
     pub async fn exec(self) -> Result<usize, ErrorIO> {
         let mut sql = format!("DELETE FROM {}", M::table_name());

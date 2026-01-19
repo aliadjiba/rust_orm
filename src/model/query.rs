@@ -79,7 +79,12 @@ pub trait QueryLike: Sized {
     {
         self.with_query(|q| q.where_eq(field, value))
     }
-
+    fn by_id<V>(self, value: V) -> Self
+    where
+        V: Serialize + Send + Sync + 'static,
+    {
+        self.with_query(|q| q.where_eq("id", value))
+    }
     fn where_in<V>(self, field: &str, values: Vec<V>) -> Self
     where
         V: Serialize + Send + Sync + 'static,
@@ -150,6 +155,14 @@ impl<'a, M: Model> Query<'a, M> {
     ) -> Self {
         let key = self.state.bind(value);
         self.state.where_and.push(format!("{field} = ${key}"));
+        self
+    }
+    pub fn by_id<V: Serialize + Send + Sync + 'static,>(
+        mut self,
+        value: V,
+    ) -> Self {
+        let key = self.state.bind(value);
+        self.state.where_and.push(format!("id = ${key}"));
         self
     }
     pub fn where_or_eq<I, S, V>(mut self, conditions: I) -> Self

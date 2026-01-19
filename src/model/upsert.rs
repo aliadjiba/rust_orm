@@ -44,7 +44,38 @@ impl<'a, M: Model> Update<'a, M> {
         }
         self
     }
+    pub async fn value<V>(self, data: V) -> Result<M, ErrorIO>
+    where
+        V: Serialize + Send + Sync + 'static,
+    {
+        let mut state = self.state;
 
+        // bind the whole value
+        let key = state.bind(data);
+
+        let mut sql = format!(
+            "UPDATE {} CONTENT ${}",
+            M::table_name(),
+            key
+        );
+
+        if !state.where_and.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&state.where_and.join(" AND "));
+        }
+
+        sql.push_str(" RETURN *");
+
+        let mut query = self.repo.db.query(sql);
+        for (k, v) in state.bindings {
+            query = query.bind((k, v));
+        }
+
+        let mut res = query.await.map_err(ErrorIO::from)?;
+        res.take::<Option<M>>(0)
+            .map_err(ErrorIO::from)?
+            .ok_or_else(|| ErrorIO::Db("Update failed".into()))
+    }
     pub fn where_eq<V: Serialize + Send + Sync + 'static>(
         mut self,
         field: &str,
@@ -54,7 +85,14 @@ impl<'a, M: Model> Update<'a, M> {
         self.state.where_and.push(format!("{field} = ${key}"));
         self
     }
-
+    pub fn by_id<V: Serialize + Send + Sync + 'static>(
+        mut self,
+        value: V,
+    ) -> Self {
+        let key = self.state.bind(value);
+        self.state.where_and.push(format!("id = ${key}"));
+        self
+    }
     pub async fn update_as<T>(self) -> Result<T, ErrorIO>
     where
         T: DeserializeOwned,
