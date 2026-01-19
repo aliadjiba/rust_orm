@@ -1,6 +1,2 @@
-mod model;
-mod repository;
-pub use crate::model::*;
-mod person;
-mod post;
-mod category;
+pub mod model;
+pub mod repository;
