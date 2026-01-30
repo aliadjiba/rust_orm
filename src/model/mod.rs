@@ -13,7 +13,7 @@ pub use model::*;
 use serde::Serialize;
 use erased_serde::Serialize as ErasedSerialize;
 use std::sync::Arc;
-pub use relations::{HasMany,BelongsTo,BelongsToMany,HasParent};
+pub use relations::*;
 pub struct Page<T> {
     pub data: Vec<T>,
     pub page: u64,

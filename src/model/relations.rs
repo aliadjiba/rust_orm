@@ -180,13 +180,21 @@ where
    BELONGS TO MANY
 =========================== */
 
-pub struct BelongsToMany<'a, Parent, Child> {
+pub struct BelongsToMany<'a, P>
+where
+    P: Pivot,
+{
     repo: &'a Repo,
-    pivot_table: String,
     parent_id: Thing,
-    _p: PhantomData<Parent>,
-    _c: PhantomData<Child>,
+    _pivot: PhantomData<P>,
 }
+// pub struct BelongsToMany<'a, Parent, Child> {
+//     repo: &'a Repo,
+//     pivot_table: String,
+//     parent_id: Thing,
+//     _p: PhantomData<Parent>,
+//     _c: PhantomData<Child>,
+// }
 
 fn pivot_table<P: Model, C: Model>() -> String {
     // Alphabetical order: "category_post" instead of "post_category"
@@ -195,75 +203,177 @@ fn pivot_table<P: Model, C: Model>() -> String {
     names.join("_")
 }
 
-impl<'a, Parent, Child> BelongsToMany<'a, Parent, Child>
+impl<'a, P> BelongsToMany<'a, P>
 where
-    Parent: Model,
-    Child: Model,
+    P: Pivot,
 {
-        pub fn new(
-        repo: &'a Repo,
-        id: Thing,
-    ) -> Self {
-        let pivot_table:String = pivot_table::<Parent, Child>();
+       pub fn new(repo: &'a Repo, parent_id: Thing) -> Self {
         Self {
             repo,
-            parent_id: id,
-            pivot_table: pivot_table,
-            _p: PhantomData,
-            _c: PhantomData,
+            parent_id,
+            _pivot: PhantomData,
         }
     }
     /// Attach a child to the parent (insert into pivot table)
-    pub async fn attach(&self, child: &impl Model) -> Result<(), ErrorIO> {
+    pub async fn attach(
+        &self,
+        child_id: Thing,
+    ) -> Result<(), ErrorIO> {
         self.repo.db
             .query(&format!(
-                "INSERT INTO {} (parent, child) VALUES ($parent, $child)",
-                self.pivot_table
+                "INSERT INTO {} ({}, {}) VALUES ($parent, $child)",
+                P::table_name(),
+                P::parent_key(),
+                P::child_key(),
             ))
-            .bind(("parent", self.parent_id.clone()))  // parent_id column
-            .bind(("child", child.id()))       // child_id column
+            .bind(("parent", self.parent_id.clone()))
+            .bind(("child", child_id))
             .await?;
+
         Ok(())
     }
 
     /// Detach a child from the parent (delete from pivot table)
-    pub async fn detach(&self, child_id: &Thing) -> Result<(), ErrorIO> {
+        pub async fn detach(
+        &self,
+        child_id: Thing,
+    ) -> Result<(), ErrorIO> {
         self.repo.db
             .query(&format!(
-                "DELETE FROM {} WHERE parent = $parent AND child = $child",
-                 self.pivot_table
+                "DELETE FROM {} WHERE {} = $parent AND {} = $child",
+                P::table_name(),
+                P::parent_key(),
+                P::child_key(),
             ))
             .bind(("parent", self.parent_id.clone()))
-            .bind(("child", child_id.clone()))
+            .bind(("child", child_id))
             .await?;
-    Ok(())
+
+        Ok(())
     }
 
-    pub async fn load(self) -> Result<Query<'a, Child>, ErrorIO> {
-        let res = Query::<Child>::new(self.repo)
-            .from_table(&self.pivot_table)
-            .where_eq(
-                "parent",
-                self.parent_id.clone()
+
+        pub async fn load(
+        &self,
+    ) -> Result<Query<'a, P::Child>, ErrorIO> {
+        let pivots: Vec<P> = Query::<P>::new(self.repo)
+            .where_or_eq([ //where_eq(P::parent_key(), self.parent_id.clone())
+                (P::parent_key(), self.parent_id.clone()),
+                (P::child_key(), self.parent_id.clone())]
             )
-            .all_as::<BelongsToManyType>()
-            .await;
-        match res {
-            Ok(related_ids) => {
-                let related_ids: Vec<Thing> = related_ids.into_iter().map(|r| r.child).collect();
-                Ok(Query::new(self.repo).where_in("id", related_ids))
-            },
-            Err(e) => {
-                println!("Error loading BelongsToMany: {:?}", e);
-                Err(e)
-            },
+            .all()
+            .await?;
+
+        let child_ids: Vec<Thing> =
+            pivots.into_iter()
+                  .map(|p| p.child_id().clone())
+                  .collect();
+
+        Ok(Query::<P::Child>::new(self.repo)
+            .where_in("id", child_ids))
+    }
+    pub async fn sync(&self, child_ids: Vec<Thing>) -> Result<(), ErrorIO> {
+        // Load existing children from pivot
+        let existing: Vec<Thing> = Query::<P>::new(self.repo)
+            .where_eq(P::parent_key(), self.parent_id.clone())
+            .all()
+            .await?
+            .into_iter()
+            .map(|p| p.child_id().clone())
+            .collect();
+
+        // Determine which to attach
+        let to_attach: Vec<Thing> = child_ids
+            .iter()
+            .filter(|id| !existing.contains(id))
+            .cloned()
+            .collect();
+
+        // Determine which to detach
+        let to_detach: Vec<Thing> = existing
+            .into_iter()
+            .filter(|id| !child_ids.contains(id))
+            .collect();
+
+        // Attach new ones
+        for id in to_attach {
+            self.attach(id).await?;
         }
-        
+
+        // Detach missing ones
+        for id in to_detach {
+            self.detach(id).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Sync children without detaching missing ones
+    pub async fn sync_without_detach(&self, child_ids: Vec<Thing>) -> Result<(), ErrorIO> {
+        // Load existing children
+        let existing: Vec<Thing> = Query::<P>::new(self.repo)
+            .where_eq(P::parent_key(), self.parent_id.clone())
+            .all()
+            .await?
+            .into_iter()
+            .map(|p| p.child_id().clone())
+            .collect();
+
+        // Attach only new ones
+        let to_attach: Vec<Thing> = child_ids
+            .iter()
+            .filter(|id| !existing.contains(id))
+            .cloned()
+            .collect();
+
+        for id in to_attach {
+            self.attach(id).await?;
+        }
+
+        Ok(())
     }
 }
+
+
 #[derive(Serialize,Deserialize,Debug)]
 pub struct BelongsToManyType{
     id: Thing,
     parent: Thing,
     child: Thing,
 }
+/* ===========================
+   PIVOT
+=========================== */
+pub trait Pivot: Model {
+    type Parent: Model;
+    type Child: Model;
+
+    fn parent_id(&self) -> &Thing;
+    fn child_id(&self) -> &Thing;
+
+    fn parent_key() -> &'static str {
+        "parent"
+    }
+
+    fn child_key() -> &'static str {
+        "child"
+    }
+    // fn new(parent: Thing, related: Thing) -> Self;
+}
+
+// pub trait Pivot: Model + Send + Sync + Clone {
+//     /// Column name for parent id (example: "article_id")
+//     fn parent_key() -> &'static str;
+
+//     /// Column name for related id (example: "category_id")
+//     fn related_key() -> &'static str;
+
+//     /// Get parent id value
+//     fn parent_id(&self) -> &Thing;
+
+//     /// Get related id value
+//     fn related_id(&self) -> &Thing;
+
+//     /// Create a new pivot instance
+//     fn new(parent: Thing, related: Thing) -> Self;
+// }
