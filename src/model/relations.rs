@@ -235,6 +235,20 @@ pub async fn attach(&self, related_id: Thing) -> Result<(), ErrorIO> {
     Ok(())
 }
 
+pub async fn attach_with<F>(&self, related_id: Thing, builder: F) -> Result<(), ErrorIO>
+where
+    F: FnOnce(P) -> P,
+{
+    let pivot = P::new(self.parent_id.clone(), related_id);
+    let pivot = builder(pivot);
+
+    Query::<P>::new(self.repo)
+        .insert()
+        .values(pivot)
+        .await?;
+
+    Ok(())
+}
 
     /// Detach relation
 pub async fn detach(&self, related_id: Thing) -> Result<(), ErrorIO> {
