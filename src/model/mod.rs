@@ -1,3 +1,4 @@
+mod edges;
 mod query;
 mod upsert;
 mod delete;
@@ -8,7 +9,7 @@ pub use insert::Insert;
 pub use query::Query;
 pub use delete::Delete;
 pub use upsert::Update;
-// pub use insert::Insert;
+pub use edges::*;
 pub use model::*;
 use serde::Serialize;
 use erased_serde::Serialize as ErasedSerialize;

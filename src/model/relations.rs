@@ -6,7 +6,7 @@ use std::{
 };
 use surrealdb::sql::Thing;
 
-use crate::{model::{Model, query::{Query, QueryLike}}, repository::{ErrorIO, Repo}};
+use crate::{model::{Model, query::Query}, repository::{ErrorIO, Repo}};
 use async_trait::async_trait;
 
 #[async_trait]
@@ -40,21 +40,21 @@ where
    HAS MANY
 =========================== */
 
-impl<'a, Parent, Child> QueryLike for HasMany<'a, Parent, Child>
-where
-    Parent: Model,
-    Child: Model,
-{
-    type Model = Child;
+// impl<'a, Parent, Child> QueryLike for HasMany<'a, Parent, Child>
+// where
+//     Parent: Model,
+//     Child: Model,
+// {
+//     type Model = Child;
 
-    fn with_query<F>(mut self, f: F) -> Self
-    where
-        F: FnOnce(Query<'_, Child>) -> Query<'_, Child>,
-    {
-        self.query = f(self.query);
-        self
-    }
-}
+//     fn with_query<F>(mut self, f: F) -> Self
+//     where
+//         F: FnOnce(Query<'_, Child>) -> Query<'_, Child>,
+//     {
+//         self.query = f(self.query);
+//         self
+//     }
+// }
 
 pub struct HasMany<'a, Parent, Child> {
     query: Query<'a, Child>,
