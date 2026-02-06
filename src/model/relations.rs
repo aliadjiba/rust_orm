@@ -393,22 +393,6 @@ pub struct BelongsToManyType{
 /* ===========================
    PIVOT
 =========================== */
-// pub trait Pivot: Model {
-//     type Parent: Model;
-//     type Child: Model;
-
-//     fn parent_id(&self) -> &Thing;
-//     fn child_id(&self) -> &Thing;
-
-//     fn parent_key() -> &'static str {
-//         "parent"
-//     }
-
-//     fn child_key() -> &'static str {
-//         "child"
-//     }
-//     // fn new(parent: Thing, related: Thing) -> Self;
-// }
 
 pub trait Pivot: Model + Send + Sync + Clone {
     fn left_key() -> &'static str;

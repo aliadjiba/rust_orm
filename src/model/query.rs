@@ -1,5 +1,5 @@
 use serde::{Serialize, de::DeserializeOwned};
-use async_trait::async_trait;
+// use async_trait::async_trait;
 use std::marker::PhantomData;
 use crate::{model::{Edge, Insert, Model, Page, SqlState}, repository::{ErrorIO, Repo}};
 

@@ -1,4 +1,3 @@
-
 use serde::{Serialize, de::DeserializeOwned};
 use crate::{model::Model, repository::{ErrorIO, Repo}};
 
@@ -31,7 +30,7 @@ impl<'a> Edge<'a> {
         self.data = Some(serde_json::to_value(data).unwrap());
         self
     }
-
+ #[allow(unused_assignments)]
     pub async fn exec(self) -> Result<(), ErrorIO> {
         let sql = format!(
             "RELATE {} -> {} -> {}",
