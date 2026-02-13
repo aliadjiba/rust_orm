@@ -239,7 +239,12 @@ pub async fn attach_with<F>(&self, related_id: Thing, builder: F) -> Result<(), 
 where
     F: FnOnce(P) -> P,
 {
-    let pivot = P::new(self.parent_id.clone(), related_id);
+    let pivot = if self.is_left {
+        P::new(self.parent_id.clone(), related_id)
+    } else {
+        P::new(related_id, self.parent_id.clone())
+    };
+
     let pivot = builder(pivot);
 
     Query::<P>::new(self.repo)
@@ -249,6 +254,7 @@ where
 
     Ok(())
 }
+
 
     /// Detach relation
 pub async fn detach(&self, related_id: Thing) -> Result<(), ErrorIO> {
@@ -395,11 +401,15 @@ pub struct BelongsToManyType{
 =========================== */
 
 pub trait Pivot: Model + Send + Sync + Clone {
+        type Extra: Default+ Clone;
     fn left_key() -> &'static str;
     fn right_key() -> &'static str;
     // fn id(&self) -> &Thing;
     fn left_id(&self) -> &Thing;
     fn right_id(&self) -> &Thing;
 
-    fn new(left: Thing, right: Thing) -> Self;
+    fn new_with(left: Thing, right: Thing, extra: Self::Extra) -> Self;
+    fn new(left: Thing, right: Thing) -> Self {
+        Self::new_with(left, right, Self::Extra::default())
+    }
 }
