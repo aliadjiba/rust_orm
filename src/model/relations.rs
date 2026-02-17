@@ -110,7 +110,7 @@ where
     Child: Model + HasParent<Parent> + Send + Sync + 'static,
 {
     type Child = Child;
-
+    
     async fn load(
         &self,
         parents: &[Parent],
