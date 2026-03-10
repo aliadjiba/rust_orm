@@ -1,5 +1,6 @@
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use actix_multipart::MultipartError;
+use tokio::task::JoinError;
 
 macro_rules! define_errors {
     (
@@ -7,7 +8,7 @@ macro_rules! define_errors {
             $name:ident => $status:ident : $msg:literal
         ),* $(,)?
     ) => {
-        #[derive(thiserror::Error, Debug, Serialize)]
+        #[derive(thiserror::Error, Debug, Serialize, Deserialize)]
         pub enum Error {
             $(
                 #[error($msg)]
@@ -63,13 +64,34 @@ macro_rules! define_errors {
                 Error::BadRequest(err.to_string())
             }
         }
-        
+
         impl From<MultipartError> for Error {
             fn from(err: MultipartError) -> Self {
                 Error::BadRequest(err.to_string())
             }
         }
 
+        impl From<image::ImageError> for Error {
+            fn from(err: image::ImageError) -> Self {
+                Error::Internal(err.to_string())
+            }
+        }
+
+        impl From<actix_web::Error> for Error {
+            fn from(err: actix_web::Error) -> Self {
+                Error::Internal(err.to_string())
+            }
+        }
+
+        impl From<JoinError> for Error {
+            fn from(err: JoinError) -> Self {
+                if err.is_panic() {
+                    Error::Internal(format!("Background task panicked: {:?}", err))
+                } else {
+                    Error::Internal(format!("Background task cancelled: {:?}", err))
+                }
+            }
+        }
     };
 }
 

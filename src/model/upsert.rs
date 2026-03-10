@@ -1,7 +1,9 @@
 use serde::{Serialize, de::DeserializeOwned};
 use std::marker::PhantomData;
 use crate::{model::{Model, SqlState}, repository::{ErrorIO, Repo}};
-
+use std::future::IntoFuture;
+use std::future::Future;
+use std::pin::Pin;
 /* ===========================
    UPDATE / UPSERT
 =========================== */
@@ -11,6 +13,21 @@ pub struct Update<'a, M> {
     state: SqlState,
     sets: Vec<String>,
     _m: PhantomData<M>,
+}
+
+impl<'a, M> IntoFuture for Update<'a, M>
+where
+    M: Model + Send + Sync + 'static,   // 🔥 ADD Send HERE
+{
+    type Output = Result<M, ErrorIO>;
+
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            self.update_as::<M>().await
+        })
+    }
 }
 
 impl<'a, M: Model> Update<'a, M> {

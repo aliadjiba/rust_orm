@@ -1,7 +1,7 @@
 use serde::de::DeserializeOwned;
 use crate::{model::{delete::Delete, insert::Insert, query::Query, upsert::Update}, repository::Repo};
 use surrealdb::sql::Thing;
-pub trait Model: Sized + DeserializeOwned {
+pub trait Model: Sized + DeserializeOwned + Sync {
     fn table_name() -> String;
     fn query<'a>(repo: &'a Repo) -> Query<'a, Self> {
         Query::new(repo)

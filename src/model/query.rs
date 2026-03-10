@@ -15,16 +15,6 @@ pub struct Query<'a, M> {
     _m: PhantomData<M>,
 }
 
-// impl<'a, M: Model> QueryLike for Query<'a, M> {
-//     type Model = M;
-//     fn with_query<F>(self, f: F) -> Self
-//     where
-//         F: FnOnce(Query<'_, M>) -> Query<'_, M>,
-//     {
-//         f(self)
-//     }
-// }
-
 
 impl<'a, M> Clone for Query<'a, M> {
     fn clone(&self) -> Self {
@@ -45,82 +35,6 @@ impl<'a, M> Clone for Query<'a, M> {
     }
 }
 
-// #[async_trait]
-// pub trait QueryLike: Sized {
-//     type Model: Model;
-
-//     fn with_query<F>(self, f: F) -> Self
-//     where
-//         F: FnOnce(Query<'_, Self::Model>) -> Query<'_, Self::Model>;
-
-//     async fn count(self) -> Result<u64, ErrorIO> {
-//         let q = self.with_query(|q| q);
-//         q.count().await
-//     }
-
-//     async fn exists(self) -> Result<bool, ErrorIO> {
-//         let q = self.with_query(|q| q);
-//         q.exists().await
-//     }
-
-//     async fn sum(self, field: &str) -> Result<f64, ErrorIO> {
-//         let q = self.with_query(|q| q);
-//         q.sum(field).await
-//     }
-
-//     async fn avg(self, field: &str) -> Result<f64, ErrorIO> {
-//         let q = self.with_query(|q| q);
-//         q.avg(field).await
-//     }
-
-//     fn where_eq<V>(self, field: &str, value: V) -> Self
-//     where
-//         V: Serialize + Send + Sync + 'static,
-//     {
-//         self.with_query(|q| q.where_eq(field, value))
-//     }
-//     fn by_id<V>(self, value: V) -> Self
-//     where
-//         V: Serialize + Send + Sync + 'static,
-//     {
-//         self.with_query(|q| q.where_eq("id", value))
-//     }
-//     fn where_in<V>(self, field: &str, values: Vec<V>) -> Self
-//     where
-//         V: Serialize + Send + Sync + 'static,
-//     {
-//         self.with_query(|q| q.where_in(field, values))
-//     }
-
-//     fn limit(self, n: u64) -> Self {
-//         self.with_query(|q| q.limit(n))
-//     }
-
-//     fn latest(self) -> Self {
-//         self.with_query(|q| q.latest())
-//     }
-
-//     fn oldest(self) -> Self {
-//         self.with_query(|q| q.oldest())
-//     }
-
-//     fn group_by<I, S>(self, fields: I) -> Self
-//     where
-//         I: IntoIterator<Item = S>,
-//         S: Into<String>,
-//     {
-//         self.with_query(|q| q.group_by(fields))
-//     }
-
-//     async fn paginate(
-//         self,
-//         page: u64,
-//         per_page: u64,
-//     ) -> Result<Page<Self::Model>, ErrorIO> {
-//         let q = self.with_query(|q| q);
-//         q.paginate(page, per_page).await
-//     }
-// }
 
 impl<'a, M: Model> Query<'a, M> {
     pub fn relate(
@@ -381,3 +295,82 @@ impl<'a, M: Model> Query<'a, M> {
         self.insert().values(data).await
     }
 }
+
+
+
+// #[async_trait]
+// pub trait QueryLike: Sized {
+//     type Model: Model;
+
+//     fn with_query<F>(self, f: F) -> Self
+//     where
+//         F: FnOnce(Query<'_, Self::Model>) -> Query<'_, Self::Model>;
+
+//     async fn count(self) -> Result<u64, ErrorIO> {
+//         let q = self.with_query(|q| q);
+//         q.count().await
+//     }
+
+//     async fn exists(self) -> Result<bool, ErrorIO> {
+//         let q = self.with_query(|q| q);
+//         q.exists().await
+//     }
+
+//     async fn sum(self, field: &str) -> Result<f64, ErrorIO> {
+//         let q = self.with_query(|q| q);
+//         q.sum(field).await
+//     }
+
+//     async fn avg(self, field: &str) -> Result<f64, ErrorIO> {
+//         let q = self.with_query(|q| q);
+//         q.avg(field).await
+//     }
+
+//     fn where_eq<V>(self, field: &str, value: V) -> Self
+//     where
+//         V: Serialize + Send + Sync + 'static,
+//     {
+//         self.with_query(|q| q.where_eq(field, value))
+//     }
+//     fn by_id<V>(self, value: V) -> Self
+//     where
+//         V: Serialize + Send + Sync + 'static,
+//     {
+//         self.with_query(|q| q.where_eq("id", value))
+//     }
+//     fn where_in<V>(self, field: &str, values: Vec<V>) -> Self
+//     where
+//         V: Serialize + Send + Sync + 'static,
+//     {
+//         self.with_query(|q| q.where_in(field, values))
+//     }
+
+//     fn limit(self, n: u64) -> Self {
+//         self.with_query(|q| q.limit(n))
+//     }
+
+//     fn latest(self) -> Self {
+//         self.with_query(|q| q.latest())
+//     }
+
+//     fn oldest(self) -> Self {
+//         self.with_query(|q| q.oldest())
+//     }
+
+//     fn group_by<I, S>(self, fields: I) -> Self
+//     where
+//         I: IntoIterator<Item = S>,
+//         S: Into<String>,
+//     {
+//         self.with_query(|q| q.group_by(fields))
+//     }
+
+//     async fn paginate(
+//         self,
+//         page: u64,
+//         per_page: u64,
+//     ) -> Result<Page<Self::Model>, ErrorIO> {
+//         let q = self.with_query(|q| q);
+//         q.paginate(page, per_page).await
+//     }
+// }
