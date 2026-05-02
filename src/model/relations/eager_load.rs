@@ -2,20 +2,20 @@ use std::{
     collections::HashMap,
     sync::Arc,
 };
-use surrealdb::sql::Thing;
+use surrealdb::types::{SurrealValue,RecordId};
 
 use crate::{model::{HasMany, Model, query::Query}, repository::{ErrorIO, Repo}};
 use async_trait::async_trait;
 
 #[async_trait]
 pub trait EagerLoad<P>: Send + Sync {
-    type Child: Model + Send + Sync + 'static;
+    type Child: Model + SurrealValue + Send + Sync + 'static;
 
     async fn load(
         &self,
         parents: &[P],
         repo: &Repo,
-    ) -> Result<HashMap<String, Arc<Vec<Self::Child>>>, ErrorIO>;
+    ) -> Result<HashMap<RecordId, Arc<Vec<Self::Child>>>, ErrorIO>;
 }
 
 
@@ -23,8 +23,8 @@ pub trait EagerLoad<P>: Send + Sync {
 #[async_trait]
 impl<'a, Parent, Child> EagerLoad<Parent> for HasMany<'a, Parent, Child>
 where
-    Parent: Model + Send + Sync,
-    Child: Model + HasParent<Parent> + Send + Sync + 'static,
+    Parent: Model + SurrealValue + Send + Sync,
+    Child: Model + HasParent<Parent> + SurrealValue + Send + Sync + 'static,
 {
     type Child = Child;
     
@@ -32,19 +32,19 @@ where
         &self,
         parents: &[Parent],
         repo: &Repo,
-    ) -> Result<HashMap<String, Arc<Vec<Self::Child>>>, ErrorIO> {
-        let ids: Vec<String> =
-            parents.iter().map(|p| p.id().to_string()).collect();
+    ) -> Result<HashMap<RecordId, Arc<Vec<Self::Child>>>, ErrorIO> {
+        let ids: Vec<RecordId> =
+            parents.iter().map(|p| p.id()).collect();
 
         let children = Query::<Child>::new(repo)
             .where_in("parent_id", ids)
             .all()
             .await?;
 
-        let mut map: HashMap<String, Vec<Child>> = HashMap::new();
+        let mut map: HashMap<RecordId, Vec<Child>> = HashMap::new();
 
         for child in children {
-            map.entry(child.parent_id().to_string())
+            map.entry(child.parent_id().clone())
                 .or_insert_with(Vec::new)
                 .push(child);
         }
@@ -56,6 +56,6 @@ where
             }
 }
 
-pub trait HasParent<Parent: Model> {
-    fn parent_id(&self) -> &Thing;
+pub trait HasParent<Parent: Model + SurrealValue> {
+    fn parent_id(&self) -> &RecordId;
 }

@@ -1,4 +1,5 @@
 use serde::Serialize;
+use surrealdb::types::{SurrealValue, Value};
 use std::marker::PhantomData;
 use crate::{model::{Model, SqlState}, repository::{ErrorIO, Repo}};
 
@@ -17,7 +18,7 @@ impl<'a, M: Model> Delete<'a, M> {
         }
     }
 
-    pub fn where_eq<V: Serialize + Send + Sync + 'static,>(
+    pub fn where_eq<V: Serialize + SurrealValue + Send + Sync + 'static,>(
         mut self,
         field: &str,
         value: V,
@@ -26,7 +27,7 @@ impl<'a, M: Model> Delete<'a, M> {
         self.state.where_and.push(format!("{field} = ${key}"));
         self
     }
-    pub fn by_id<V: Serialize + Send + Sync + 'static,>(
+    pub fn by_id<V: Serialize + SurrealValue + Send + Sync + 'static,>(
         mut self,
         value: V,
     ) -> Self {
@@ -49,7 +50,7 @@ impl<'a, M: Model> Delete<'a, M> {
         }
 
         let mut res = query.await.map_err(ErrorIO::from)?;
-        let vals: Vec<surrealdb::Value> = res.take(0).map_err(ErrorIO::from)?;
+        let vals: Vec<Value> = res.take(0).map_err(ErrorIO::from)?;
         Ok(vals.len())
     }
 }

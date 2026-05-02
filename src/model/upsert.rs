@@ -1,4 +1,5 @@
 use serde::{Serialize, de::DeserializeOwned};
+use surrealdb::types::SurrealValue;
 use std::marker::PhantomData;
 use crate::{model::{Model, SqlState}, repository::{ErrorIO, Repo}};
 use std::future::IntoFuture;
@@ -17,7 +18,7 @@ pub struct Update<'a, M> {
 
 impl<'a, M> IntoFuture for Update<'a, M>
 where
-    M: Model + Send + Sync + 'static,   // 🔥 ADD Send HERE
+    M: Model + SurrealValue + Send + Sync + 'static,   // 🔥 ADD Send HERE
 {
     type Output = Result<M, ErrorIO>;
 
@@ -40,7 +41,7 @@ impl<'a, M: Model> Update<'a, M> {
         }
     }
 
-    pub fn set<V: Serialize + Send + Sync + 'static,>(
+    pub fn set<V: Serialize + SurrealValue + Send + Sync + 'static,>(
         mut self,
         field: &str,
         value: V,
@@ -53,7 +54,7 @@ impl<'a, M: Model> Update<'a, M> {
     where
         I: IntoIterator<Item = (S, V)>,
         S: Into<String>,
-        V: Serialize + Send + Sync + 'static,
+        V: Serialize + SurrealValue + Send + Sync + 'static,
     {
         for (field, value) in items {
             let key = self.state.bind(value);
@@ -63,7 +64,7 @@ impl<'a, M: Model> Update<'a, M> {
     }
     pub async fn value<V>(self, data: V) -> Result<M, ErrorIO>
     where
-        V: Serialize + Send + Sync + 'static,
+        V: Serialize + SurrealValue + Send + Sync + 'static,
     {
         let mut state = self.state;
 
@@ -93,7 +94,7 @@ impl<'a, M: Model> Update<'a, M> {
             .map_err(ErrorIO::from)?
             .ok_or_else(|| ErrorIO::Db("Update failed".into()))
     }
-    pub fn where_eq<V: Serialize + Send + Sync + 'static>(
+    pub fn where_eq<V: Serialize + SurrealValue + Send + Sync + 'static>(
         mut self,
         field: &str,
         value: V,
@@ -102,7 +103,7 @@ impl<'a, M: Model> Update<'a, M> {
         self.state.where_and.push(format!("{field} = ${key}"));
         self
     }
-    pub fn by_id<V: Serialize + Send + Sync + 'static>(
+    pub fn by_id<V: Serialize + SurrealValue + Send + Sync + 'static>(
         mut self,
         value: V,
     ) -> Self {
@@ -112,7 +113,7 @@ impl<'a, M: Model> Update<'a, M> {
     }
     pub async fn update_as<T>(self) -> Result<T, ErrorIO>
     where
-        T: DeserializeOwned,
+        T: DeserializeOwned + SurrealValue,
     {
         let mut sql = format!(
             "UPDATE {} SET {}",
@@ -140,7 +141,7 @@ impl<'a, M: Model> Update<'a, M> {
 
     pub async fn upsert_as<T>(self) -> Result<T, ErrorIO>
     where
-        T: DeserializeOwned,
+        T: DeserializeOwned + SurrealValue,
     {
         let mut sql = format!(
             "UPSERT INTO {} CONTENT {{ {} }}",

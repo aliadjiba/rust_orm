@@ -1,4 +1,5 @@
 use serde::Serialize;
+use surrealdb::types::SurrealValue;
 use std::marker::PhantomData;
 use crate::{model::{Model, query::Query}, repository::{ErrorIO, Repo}};
 
@@ -19,10 +20,10 @@ where
     pub fn new(
         repo: &'a Repo,
         child_key: &str,
-        child_value: impl Serialize + Send + Sync + 'static,
+        child_value: impl Serialize + Send + SurrealValue + Sync + 'static,
     ) -> Self {
         Self {
-            query: Query::<Child>::new(repo)
+            query: Query::<Child>::new(&repo)
                 .where_eq(child_key, child_value),
             _p: PhantomData,
         }

@@ -1,4 +1,5 @@
-use surrealdb::sql::Thing;
+use surrealdb::types::RecordId;
+
 use crate::model::Model;
 
 
@@ -11,12 +12,12 @@ pub trait Pivot: Model + Send + Sync + Clone {
         type Extra: Default+ Clone;
     fn left_key() -> &'static str;
     fn right_key() -> &'static str;
-    // fn id(&self) -> &Thing;
-    fn left_id(&self) -> &Thing;
-    fn right_id(&self) -> &Thing;
+    // fn id(&self) -> &RecordId;
+    fn left_id(&self) -> &RecordId;
+    fn right_id(&self) -> &RecordId;
 
-    fn new_with(left: Thing, right: Thing, extra: Self::Extra) -> Self;
-    fn new(left: Thing, right: Thing) -> Self {
+    fn new_with(left: RecordId, right: RecordId, extra: Self::Extra) -> Self;
+    fn new(left: RecordId, right: RecordId) -> Self {
         Self::new_with(left, right, Self::Extra::default())
     }
 }

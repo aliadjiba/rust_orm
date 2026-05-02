@@ -1,7 +1,8 @@
 use serde::de::DeserializeOwned;
+use surrealdb::types::{RecordId, SurrealValue};
 use crate::{model::{delete::Delete, insert::Insert, query::Query, upsert::Update}, repository::Repo};
-use surrealdb::sql::Thing;
-pub trait Model: Sized + DeserializeOwned + Sync {
+
+pub trait Model: Sized + DeserializeOwned + Sync + SurrealValue {
     fn table_name() -> String;
     fn query<'a>(repo: &'a Repo) -> Query<'a, Self> {
         Query::new(repo)
@@ -15,5 +16,6 @@ pub trait Model: Sized + DeserializeOwned + Sync {
     fn delete<'a>(repo: &'a Repo) -> Delete<'a, Self> {
         Delete::new(repo)
     }
-    fn id(&self) -> Thing ;
+    fn id(&self) -> RecordId ;
+    fn migration()-> &'static str;
 }

@@ -8,6 +8,7 @@ mod model;
 pub use insert::Insert;
 pub use query::Query;
 pub use delete::Delete;
+use surrealdb::types::{SurrealValue, Value};
 pub use upsert::Update;
 pub use edges::*;
 pub use model::*;
@@ -28,7 +29,7 @@ pub struct Page<T> {
 =========================== */
 struct SqlState {
     where_and: Vec<String>,
-    bindings: Vec<(String, Arc<dyn ErasedSerialize + Send + Sync>)>,
+    bindings: Vec<(String, Value)>,
 }
 impl SqlState {
     fn new() -> Self {
@@ -38,10 +39,22 @@ impl SqlState {
         }
     }
 
- fn bind<V: Serialize + Send + Sync + 'static>(&mut self, value: V) -> String {
-        let key = format!("v{}", self.bindings.len());
-        self.bindings.push((key.clone(), Arc::new(value)));
-        key
-    }
-}
+//  fn bind<V: Serialize + SurrealValue + Send + Sync + 'static>(&mut self, value: V) -> String {
+//         let key = format!("v{}", self.bindings.len());
+//         self.bindings.push((key.clone(), Arc::new(value)));
+//         key
+//     }
+    fn bind<V>(&mut self, value: V) -> String
+        where
+            V: SurrealValue,
+        {
+            let key = format!("v{}", self.bindings.len());
 
+            self.bindings.push((
+                key.clone(),
+                value.into_value(),
+            ));
+
+            key
+        }
+}

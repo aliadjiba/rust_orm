@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
+use surrealdb::types::RecordId;
 use std::marker::PhantomData;
-use surrealdb::sql::Thing;
 
 use crate::{model::{Model, Pivot, query::Query}, repository::{ErrorIO, Repo}};
 
@@ -16,7 +16,7 @@ where
     P: Pivot,
 {
     repo: &'a Repo,
-    parent_id: Thing,
+    parent_id: RecordId,
     is_left: bool, // 🔥 this decides direction
     _pivot: PhantomData<P>,
 }
@@ -26,7 +26,7 @@ impl<'a, P> BelongsToMany<'a, P>
 where
     P: Pivot + Serialize  + 'static,
 {
-    pub fn new(repo: &'a Repo, parent_id: Thing, is_left: bool) -> Self {
+    pub fn new(repo: &'a Repo, parent_id: RecordId, is_left: bool) -> Self {
         Self {
             repo,
             parent_id,
@@ -36,7 +36,7 @@ where
     }
 
     /// Attach single relation
-pub async fn attach(&self, related_id: Thing) -> Result<(), ErrorIO> {
+pub async fn attach(&self, related_id: RecordId) -> Result<(), ErrorIO> {
     let pivot = if self.is_left {
         P::new(self.parent_id.clone(), related_id)
     } else {
@@ -51,7 +51,7 @@ pub async fn attach(&self, related_id: Thing) -> Result<(), ErrorIO> {
     Ok(())
 }
 
-pub async fn attach_with<F>(&self, related_id: Thing, builder: F) -> Result<(), ErrorIO>
+pub async fn attach_with<F>(&self, related_id: RecordId, builder: F) -> Result<(), ErrorIO>
 where
     F: FnOnce(P) -> P,
 {
@@ -73,7 +73,7 @@ where
 
 
     /// Detach relation
-pub async fn detach(&self, related_id: Thing) -> Result<(), ErrorIO> {
+pub async fn detach(&self, related_id: RecordId) -> Result<(), ErrorIO> {
     let mut query = Query::<P>::new(self.repo);
 
     if self.is_left {
@@ -96,7 +96,7 @@ pub async fn detach(&self, related_id: Thing) -> Result<(), ErrorIO> {
 
 
     /// Load related IDs
-async fn existing_related_ids(&self) -> Result<Vec<Thing>, ErrorIO> {
+async fn existing_related_ids(&self) -> Result<Vec<RecordId>, ErrorIO> {
     let pivots = if self.is_left {
         Query::<P>::new(self.repo)
             .where_eq(P::left_key(), self.parent_id.clone())
@@ -123,7 +123,7 @@ async fn existing_related_ids(&self) -> Result<Vec<Thing>, ErrorIO> {
 
 
     /// sync() — Laravel style
-    pub async fn sync(&self, ids: Vec<Thing>) -> Result<(), ErrorIO> {
+    pub async fn sync(&self, ids: Vec<RecordId>) -> Result<(), ErrorIO> {
         let existing = self.existing_related_ids().await?;
 
         let to_attach: Vec<_> = ids
@@ -149,7 +149,7 @@ async fn existing_related_ids(&self) -> Result<Vec<Thing>, ErrorIO> {
     }
 
     /// sync_without_detach()
-    pub async fn sync_without_detach(&self, ids: Vec<Thing>) -> Result<(), ErrorIO> {
+    pub async fn sync_without_detach(&self, ids: Vec<RecordId>) -> Result<(), ErrorIO> {
         let existing = self.existing_related_ids().await?;
 
         let to_attach: Vec<_> = ids
@@ -183,7 +183,7 @@ where
         return Ok(vec![]);
     }
 
-    let related_ids: Vec<Thing> = pivots
+    let related_ids: Vec<RecordId> = pivots
         .into_iter()
         .map(|p| {
             if self.is_left {
@@ -208,7 +208,7 @@ where
 
 #[derive(Serialize,Deserialize,Debug)]
 pub struct BelongsToManyType{
-    id: Thing,
-    parent: Thing,
-    child: Thing,
+    id: RecordId,
+    parent: RecordId,
+    child: RecordId,
 }

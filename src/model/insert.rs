@@ -1,20 +1,24 @@
 use serde::Serialize;
+use surrealdb::types::SurrealValue;
 use std::marker::PhantomData;
 use crate::{model::Model, repository::{ErrorIO, Repo}};
 
-pub struct Insert<'a, M> {
+pub struct Insert<'a, M:Model + SurrealValue> {
     repo: &'a Repo,
     _m: PhantomData<M>,
 }
 
-impl<'a, M: Model> Insert<'a, M> {
+impl<'a, M: Model> Insert<'a, M>
+where
+    M: Model + SurrealValue,
+{
     pub(super) fn new(repo: &'a Repo) -> Self {
         Self { repo, _m: PhantomData }
     }
 
     pub async fn values<V>(self, data: V) -> Result<M, ErrorIO>
     where
-        V: Serialize + Send + 'static,
+        V: Serialize + SurrealValue + 'static,
     {
         let sql = format!("CREATE {} CONTENT $data", M::table_name());
 
