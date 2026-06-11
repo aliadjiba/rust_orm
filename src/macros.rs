@@ -6,7 +6,7 @@ macro_rules! run_migrations {
         let mut sql = String::new();
 
         $(
-            sql.push_str(<$model>::migration());
+            sql.push_str(<$model>::schema().as_str());
             sql.push('\n');
         )*
 

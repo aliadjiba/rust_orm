@@ -1,17 +1,16 @@
 use serde::{Deserialize, Serialize};
 use surrealdb::types::RecordId;
+use std::fmt::Debug;
 use std::marker::PhantomData;
-
-use crate::{model::{Model, Pivot, query::Query}, repository::{ErrorIO, Repo}};
-
-
-
+use crate::error::ErrorIO;
+use crate::model::query::{self, Delete, Filtered, Insert, Select};
+use crate::{model::{Model, Pivot, query::QueryBuilder as Query}, repository::{Repo}};
 
 /* ===========================
    BELONGS TO MANY
 =========================== */
 
-pub struct BelongsToMany<'a, P>
+pub struct BelongsToMany<'a, P, Child, Parent>
 where
     P: Pivot,
 {
@@ -19,12 +18,16 @@ where
     parent_id: RecordId,
     is_left: bool, // 🔥 this decides direction
     _pivot: PhantomData<P>,
+    _parent: PhantomData<Parent>, // Placeholder for potential future use
+    _child: PhantomData<Child>, // Placeholder for potential future use
 }
 
 
-impl<'a, P> BelongsToMany<'a, P>
+impl<'a, P, Child, Parent> BelongsToMany<'a, P, Child, Parent>
 where
-    P: Pivot + Serialize  + 'static,
+    P: Pivot ,
+    Child: Model,
+    Parent: Model ,
 {
     pub fn new(repo: &'a Repo, parent_id: RecordId, is_left: bool) -> Self {
         Self {
@@ -32,9 +35,19 @@ where
             parent_id,
             is_left,
             _pivot: PhantomData,
+            _parent: PhantomData,
+            _child: PhantomData,
         }
     }
+}
 
+
+impl<'a, P, Child, Parent> BelongsToMany<'a, P, Child, Parent>
+where
+    P: Pivot ,
+    Child: Model,
+    Parent: Model,
+{
     /// Attach single relation
 pub async fn attach(&self, related_id: RecordId) -> Result<(), ErrorIO> {
     let pivot = if self.is_left {
@@ -43,9 +56,9 @@ pub async fn attach(&self, related_id: RecordId) -> Result<(), ErrorIO> {
         P::new(related_id, self.parent_id.clone())
     };
 
-    Query::<P>::new(self.repo)
-        .insert()
+    Query::<P,Insert>::new(self.repo)
         .values(pivot)
+        .exec::<P>()
         .await?;
 
     Ok(())
@@ -63,145 +76,72 @@ where
 
     let pivot = builder(pivot);
 
-    Query::<P>::new(self.repo)
-        .insert()
+    Query::<P,Insert>::new(self.repo)
         .values(pivot)
+        .exec::<P>()
         .await?;
 
     Ok(())
 }
 
-
-    /// Detach relation
-pub async fn detach(&self, related_id: RecordId) -> Result<(), ErrorIO> {
-    let mut query = Query::<P>::new(self.repo);
-
-    if self.is_left {
-        query = query
-            .where_eq(P::left_key(), self.parent_id.clone())
-            .where_eq(P::right_key(), related_id);
-    } else {
-        query = query
-            .where_eq(P::right_key(), self.parent_id.clone())
-            .where_eq(P::left_key(), related_id);
-    }
-
-    let q =query.first().await?;
-    match q  {
-        Some(p)=>{P::delete(self.repo).by_id(p.id());},
-        None=>{}
-    }
-    Ok(())
 }
 
-
-    /// Load related IDs
-async fn existing_related_ids(&self) -> Result<Vec<RecordId>, ErrorIO> {
-    let pivots = if self.is_left {
-        Query::<P>::new(self.repo)
-            .where_eq(P::left_key(), self.parent_id.clone())
-            .all()
-            .await?
-    } else {
-        Query::<P>::new(self.repo)
-            .where_eq(P::right_key(), self.parent_id.clone())
-            .all()
-            .await?
-    };
-
-    Ok(pivots
-        .into_iter()
-        .map(|p| {
-            if self.is_left {
-                p.right_id().clone()
-            } else {
-                p.left_id().clone()
-            }
-        })
-        .collect())
-}
-
-
-    /// sync() — Laravel style
-    pub async fn sync(&self, ids: Vec<RecordId>) -> Result<(), ErrorIO> {
-        let existing = self.existing_related_ids().await?;
-
-        let to_attach: Vec<_> = ids
-            .iter()
-            .filter(|id| !existing.contains(id))
-            .cloned()
-            .collect();
-
-        let to_detach: Vec<_> = existing
-            .into_iter()
-            .filter(|id| !ids.contains(id))
-            .collect();
-
-        for id in to_attach {
-            self.attach(id).await?;
-        }
-
-        for id in to_detach {
-            self.detach(id).await?;
-        }
-
-        Ok(())
-    }
-
-    /// sync_without_detach()
-    pub async fn sync_without_detach(&self, ids: Vec<RecordId>) -> Result<(), ErrorIO> {
-        let existing = self.existing_related_ids().await?;
-
-        let to_attach: Vec<_> = ids
-            .into_iter()
-            .filter(|id| !existing.contains(id))
-            .collect();
-
-        for id in to_attach {
-            self.attach(id).await?;
-        }
-
-        Ok(())
-    }
-    pub async fn load<R>(&self) -> Result<Vec<R>, ErrorIO>
+impl<'a, P, Child, Parent> BelongsToMany<'a, P, Child, Parent>
 where
-    R: Model + Clone,
+    P: Pivot,
+    Child: Model,
+    Parent: Model,
 {
-    let pivots = if self.is_left {
-        Query::<P>::new(self.repo)
-            .where_eq(P::left_key(), self.parent_id.clone())
-            .all()
-            .await?
+    /// Detach relation
+pub async fn detach(&self, related_id: RecordId) -> Result<usize, ErrorIO> {
+    let init = Query::<P,Delete>::new(self.repo);
+    let query:Query<'_, _, query::Delete<Filtered>>;
+    if self.is_left {
+        query = init
+            .filter(P::left_key(), self.parent_id.clone())
+            .filter(P::right_key(), related_id.clone());
     } else {
-        Query::<P>::new(self.repo)
-            .where_eq(P::right_key(), self.parent_id.clone())
-            .all()
-            .await?
-    };
-
-    if pivots.is_empty() {
-        return Ok(vec![]);
+        query = init
+            .filter(P::right_key(), self.parent_id.clone())
+            .filter(P::left_key(), related_id.clone());
     }
 
-    let related_ids: Vec<RecordId> = pivots
-        .into_iter()
-        .map(|p| {
-            if self.is_left {
-                p.right_id().clone()
-            } else {
-                p.left_id().clone()
-            }
-        })
-        .collect();
-
-    let related = Query::<R>::new(self.repo)
-        .where_in("id", related_ids)
-        .all()
-        .await?;
-
-    Ok(related)
+   query.exec().await
 }
 
+    pub fn pivot(&self) -> Query<'a, P, query::Select<Filtered>>
+    where
+    {
+        let query = Query::<P,Select>::new(self.repo);
+        if self.is_left {
+            query
+                .filter(P::left_key(), self.parent_id.clone())
+                .with(Child::table_name())
+                .with(Parent::table_name())
+        } else {
+            query
+                .filter(P::right_key(), self.parent_id.clone())
+                .with(Child::table_name())
+                .with(Parent::table_name())
+        }
+    }
+    pub fn load(&self) -> Query<'a, P, query::Select<Filtered>>
+    where
+    {
+        let query = Query::<P,Select>::new(self.repo);
+        if self.is_left {
+            query
+                .filter(P::left_key(), self.parent_id.clone())
+                .with(Child::table_name())
+                .value(Child::table_name())
+
+        } else {
+            query
+                .filter(P::right_key(), self.parent_id.clone())
+                .with(Parent::table_name())
+                .value(Parent::table_name())
+        }
+    }
 }
 
 

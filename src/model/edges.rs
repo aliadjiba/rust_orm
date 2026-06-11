@@ -1,5 +1,6 @@
 use serde::{Serialize, de::DeserializeOwned};
-use crate::{model::Model, repository::{ErrorIO, Repo}};
+use crate::{model::Model, repository::{Repo}};
+use crate::error::ErrorIO;
 
 pub struct Edge<'a> {
     repo: &'a Repo,

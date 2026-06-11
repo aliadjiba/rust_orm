@@ -4,7 +4,8 @@ use std::{
 };
 use surrealdb::types::{SurrealValue,RecordId};
 
-use crate::{model::{HasMany, Model, query::Query}, repository::{ErrorIO, Repo}};
+use crate::{model::{HasMany, Model, query::{Filtered, QueryBuilder as Query, Select}}, repository::Repo};
+use crate::error::ErrorIO;
 use async_trait::async_trait;
 
 #[async_trait]
@@ -21,9 +22,8 @@ pub trait EagerLoad<P>: Send + Sync {
 
 
 #[async_trait]
-impl<'a, Parent, Child> EagerLoad<Parent> for HasMany<'a, Parent, Child>
+impl<'a, Parent, Child> EagerLoad<Parent> for HasMany<'a, Child>
 where
-    Parent: Model + SurrealValue + Send + Sync,
     Child: Model + HasParent<Parent> + SurrealValue + Send + Sync + 'static,
 {
     type Child = Child;
@@ -36,9 +36,9 @@ where
         let ids: Vec<RecordId> =
             parents.iter().map(|p| p.id()).collect();
 
-        let children = Query::<Child>::new(repo)
-            .where_in("parent_id", ids)
-            .all()
+        let children = Query::<Child,Select<Filtered>>::new(repo)
+            .filter("parent_id", ids)
+            .all::<Child>()
             .await?;
 
         let mut map: HashMap<RecordId, Vec<Child>> = HashMap::new();

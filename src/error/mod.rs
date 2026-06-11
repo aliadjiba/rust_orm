@@ -9,7 +9,7 @@ macro_rules! define_errors {
         ),* $(,)?
     ) => {
         #[derive(thiserror::Error, Debug, Serialize, Deserialize)]
-        pub enum Error {
+        pub enum ErrorIO {
             $(
                 #[error($msg)]
                 $name(String),
@@ -17,7 +17,7 @@ macro_rules! define_errors {
         }
 
         pub trait ErrorVariant {
-            fn build(msg: String) -> Error;
+            fn build(msg: String) -> ErrorIO;
         }
 
         $(
@@ -25,70 +25,70 @@ macro_rules! define_errors {
             pub struct $name;
 
             impl ErrorVariant for $name {
-                fn build(msg: String) -> Error {
-                    Error::$name(msg)
+                fn build(msg: String) -> ErrorIO {
+                    ErrorIO::$name(msg)
                 }
             }
         )*
 
-        impl Error {
+        impl ErrorIO {
             pub fn new<T: ErrorVariant>(msg: impl Into<String>) -> Self {
                 T::build(msg.into())
             }
         }
 
-        impl actix_web::ResponseError for Error {
+        impl actix_web::ResponseError for ErrorIO {
             fn error_response(&self) -> actix_web::HttpResponse {
                 match self {
                     $(
-                        Error::$name(e) => actix_web::HttpResponse::$status().body(e.clone()),
+                        ErrorIO::$name(e) => actix_web::HttpResponse::$status().body(e.clone()),
                     )*
                 }
             }
         }
 
-        impl From<surrealdb::Error> for Error {
+        impl From<surrealdb::Error> for ErrorIO {
             fn from(err: surrealdb::Error) -> Self {
-                Error::Db(err.to_string())
+                ErrorIO::Db(err.to_string())
             }
         }
 
-        impl From<std::io::Error> for Error {
+        impl From<std::io::Error> for ErrorIO {
             fn from(err: std::io::Error) -> Self {
-                Error::Internal(err.to_string())
+                ErrorIO::Internal(err.to_string())
             }
         }
 
-        impl From<serde_json::Error> for Error {
+        impl From<serde_json::Error> for ErrorIO {
             fn from(err: serde_json::Error) -> Self {
-                Error::BadRequest(err.to_string())
+                ErrorIO::BadRequest(err.to_string())
             }
         }
 
-        impl From<MultipartError> for Error {
+        impl From<MultipartError> for ErrorIO {
             fn from(err: MultipartError) -> Self {
-                Error::BadRequest(err.to_string())
+                ErrorIO::BadRequest(err.to_string())
             }
         }
 
-        impl From<image::ImageError> for Error {
+        impl From<image::ImageError> for ErrorIO {
             fn from(err: image::ImageError) -> Self {
-                Error::Internal(err.to_string())
+                ErrorIO::Internal(err.to_string())
             }
         }
 
-        impl From<actix_web::Error> for Error {
+        impl From<actix_web::Error> for ErrorIO {
             fn from(err: actix_web::Error) -> Self {
-                Error::Internal(err.to_string())
+                ErrorIO::Internal(err.to_string())
             }
         }
 
-        impl From<JoinError> for Error {
+        impl From<JoinError> for ErrorIO {
             fn from(err: JoinError) -> Self {
                 if err.is_panic() {
-                    Error::Internal(format!("Background task panicked: {:?}", err))
+                    ErrorIO::Internal(format!("Background task panicked: {:?}", err))
                 } else {
-                    Error::Internal(format!("Background task cancelled: {:?}", err))
+                    ErrorIO::Internal(format!("Background task cancelled: {:?}", err))
                 }
             }
         }

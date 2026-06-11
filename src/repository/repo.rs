@@ -2,11 +2,11 @@ use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::{Client, Ws};
 use surrealdb::opt::auth::Root;
-use super::errors::{Error as ErrorIO};
+use crate::error::ErrorIO;
 
 
 pub type DbClient = Arc<Surreal<Client>>;
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub struct Repo { pub db: DbClient, }
 impl Repo{
     pub async fn connect(url: &str, ns: &str, db: &str, user: &str, pass: &str)->Result<Self, ErrorIO>{
