@@ -27,7 +27,10 @@ pub trait Model: Sized + DeserializeOwned + Sync + SurrealValue + Serialize {
         let query = QueryBuilder::<Self, Delete>::new(repo);
         query.find(self.id()).exec()
     }
+    fn soft_delete() -> bool { false }
 
     fn id(&self) -> RecordId ;
     fn schema()-> String;
+    fn check_no_dependents<'a>(repo: &'a Repo, id: &'a RecordId) ->  impl std::future::Future<Output = Result<(), ErrorIO>> + 'a;
 }
+

@@ -198,9 +198,13 @@ impl<'a, M> QueryBuilder<'a, M, Delete<Filtered>>
     pub async fn exec(self) -> Result<usize, ErrorIO>{
         let mut sql = format!("DELETE FROM {}", quote_table(M::table_name()));
 
-        if !self.state.conditions.is_empty() {
+        let mut conditions = self.state.conditions.clone();
+        if M::soft_delete() {
+            conditions.push("deleted_at IS NULL".to_string());
+        }
+        if !conditions.is_empty() {
             sql.push_str(" WHERE ");
-            sql.push_str(&self.state.conditions.join(" AND "));
+            sql.push_str(&conditions.join(" AND "));
         }
         let mut query = self.repo.db.query(sql);
         for (k, v) in self.state.bindings {
@@ -324,6 +328,27 @@ where
         }
         self
     }
+     pub fn nested(mut self, path: &str) -> Self {
+        let incoming = NestedRelation::parse_path(path);
+        match self.nested {
+            None => self.nested = Some(incoming),
+            Some(ref mut existing) => {
+                // Merge each incoming root into the existing tree
+                for node in incoming {
+                    NestedRelation::merge_into(existing, &[node.name.as_str()]);
+                    // If the incoming node has children, graft them in too.
+                    // parse_path already built the full subtree so we can just
+                    // replace the leaf we just inserted with the full node.
+                    if !node.children.is_empty() {
+                        if let Some(target) = existing.iter_mut().find(|n| n.name == node.name) {
+                            *target = node;
+                        }
+                    }
+                }
+            }
+        }
+        self
+    }
     pub fn value(mut self, n: &str) -> Self {
         if !n.is_empty() {
             self.value=Some(n.into());
@@ -384,9 +409,13 @@ where
     async fn inner_count(self) -> Result<u64, ErrorIO> {
         let mut sql = format!("SELECT count() FROM {}", quote_table(self.table));
 
-        if !self.state.conditions.is_empty() {
+        let mut conditions = self.state.conditions.clone();
+        if M::soft_delete() {
+            conditions.push("deleted_at IS NULL".to_string());
+        }
+        if !conditions.is_empty() {
             sql.push_str(" WHERE ");
-            sql.push_str(&self.state.conditions.join(" AND "));
+            sql.push_str(&conditions.join(" AND "));
         }
 
         let mut query = self.repo.db.query(sql);
@@ -407,97 +436,26 @@ where
             .map(|s| s.join(", "))
             .unwrap_or_else(|| "*".to_string());
 
-        // let select_clause = if let Some(ref val) = self.value {
-        //     // Check if `with` contains the same value — if so, fetch full record
-        //     let is_record = self.with
-        //         .as_ref()
-        //         .map(|w| w.iter().any(|w| w == val))
-        //         .unwrap_or(false);
-
-        //     if is_record {
-        //         format!("VALUE {val}.*")
-        //     } else {
-        //         format!("VALUE {val}")
-        //     }
-        // } else {
-        //     if let Some(with) = self.with {
-        //         for w in with {
-        //             let w_lower = w.to_lowercase();
-        //             if let Some(rel) = Relation::get(M::table_name(), &w_lower) {
-        //                 match rel.relation_type {
-        //                     RelationType::BelongsToMany => {
-        //                         let child_table = rel.child_table.clone().unwrap_or_else(|| {
-        //                             pluralizer::singularize(&w)
-        //                         });
-        //                         let pivot_table = rel.pivot.clone().unwrap_or_default();
-        //                         let pivot_left_key = rel.pivot_left_key.clone().unwrap_or_default();
-        //                         let pivot_right_key = rel.pivot_right_key.clone().unwrap_or_default();
-        //                         let (pivot_fk, pivot_child_key) = if rel.is_left.unwrap_or(true) {
-        //                             (pivot_left_key.as_str(), pivot_right_key.as_str())
-        //                         } else {
-        //                             (pivot_right_key.as_str(), pivot_left_key.as_str())
-        //                         };
-        //                         // select.push_str(&format!(
-        //                         //     " , (SELECT * FROM {child_table} WHERE id IN \
-        //                         //     (SELECT VALUE {pivot_child_key} FROM {pivot_table} \
-        //                         //     WHERE {pivot_fk} = $parent.id)) AS {w} "
-        //                         // ));
-        //                         // select.push_str(&format!(" , (SELECT VALUE {pivot_child_key}.* FROM {} WHERE {pivot_fk} = $parent.id) AS {w} ", quote_table(&pivot_table)));
-        //                         select.push_str(&format!(
-        //                             " , (SELECT * OMIT {pivot_fk} FROM {} WHERE {pivot_fk} = $parent.id FETCH {pivot_child_key}) AS {w} ",
-        //                             quote_table(&pivot_table)
-        //                         ));
-        //                     }
-        //                     RelationType::HasMany => {
-        //                         let child_table = rel.child_table.clone().unwrap_or_else(|| {
-        //                             pluralizer::singularize(&w)
-        //                         });
-        //                         select.push_str(&format!(
-        //                             " , (SELECT * FROM {} WHERE {} = $parent.id) AS {w} ",
-        //                             quote_table(&child_table),
-        //                             M::table_name()
-        //                         ));
-        //                     }
-        //                     RelationType::BelongsTo => {
-        //                         select.push_str(&format!(" , {w}.* "));
-        //                     }
-        //                 }
-        //             } else if pluralizer::is_plural(&w) {
-        //                 let s = pluralizer::singularize(&w);
-        //                 select.push_str(&format!(
-        //                     " , (SELECT * FROM {} WHERE {} = $parent.id) AS {w} ",
-        //                     quote_table(&s),
-        //                     M::table_name()
-        //                 ));
-        //             } else {
-        //                 select.push_str(&format!(" , {w}.* "));
-        //             }
-        //         }
-        //     }
-        //     if let Some(ref nested) = self.nested {
-        //         select.push_str(&NestedRelation::generate_nested_sql(nested, M::table_name()));
-        //     }
-        //     select
-        // };
+        
         let select_clause = if let Some(ref val) = self.value {
-        let is_record = self.with
-            .as_ref()
-            .map(|w| w.iter().any(|w| w == val))
-            .unwrap_or(false);
-
-        if is_record {
-            format!("VALUE {val}.*")
-        } else {
-            format!("VALUE {val}")
-        }
+            let is_record = self.with
+                .as_ref()
+                .map(|w| w.iter().any(|w| w == val))
+                .unwrap_or(false);
+            if is_record {
+                format!("VALUE {val}.*")
+            } else {
+                format!("VALUE {val}")
+            }
     } else {
         // Collect which relation names are already handled by nested paths
         // so we don't double-emit them from self.with
+        // nested_roots: all top-level relation names already handled by nested paths
         let nested_roots: std::collections::HashSet<String> = self.nested
             .as_ref()
             .map(|n| n.iter().map(|r| r.name.to_lowercase()).collect())
             .unwrap_or_default();
-
+        // with() relations that aren't already covered by nested()
         if let Some(with) = self.with {
             for w in with {
                 let w_lower = w.to_lowercase();
@@ -505,7 +463,7 @@ where
                 // Skip if this relation is also present as a nested path
                 // (nested block below will handle it with full FETCH chain)
                 if nested_roots.contains(&w_lower) {
-                    continue;
+                    continue; // nested() already emits this
                 }
 
                 if let Some(rel) = Relation::get(M::table_name(), &w_lower) {
@@ -535,18 +493,28 @@ where
                             ));
                         }
                         RelationType::BelongsTo => {
-                            select.push_str(&format!(" , {w}.* "));
+                            // child_table holds the related table name (set by Relation::belongs_to)
+                            let related_table = rel.child_table.clone().unwrap_or_else(|| w_lower.clone());
+                            // fk is the field on Self that holds the RecordId
+                            // stored in rel.fk by the macro (from `fk = "..."` or defaults to relation name)
+                            let fk_col = rel.fk.clone().unwrap_or_else(|| w_lower.clone());
+                            select.push_str(&format!(
+                                " , (SELECT * FROM `{related_table}` WHERE id = $parent.{fk_col})[0] AS {w} "
+                            ));
                         }
                     }
-                } else if pluralizer::is_plural(&w) {
+                } else if pluralizer::is_plural(&w_lower) {
                     let s = pluralizer::singularize(&w);
                     select.push_str(&format!(
-                        " , (SELECT * FROM {} WHERE {} = $parent.id) AS {w} ",
-                        quote_table(&s),
+                        " , (SELECT * FROM `{s}` WHERE {} = $parent.id) AS {w} ",
+                        // quote_table(&s),
                         M::table_name()
                     ));
                 } else {
-                    select.push_str(&format!(" , {w}.* "));
+                    // select.push_str(&format!(" , {w}.* "));
+                    select.push_str(&format!(
+                        " , (SELECT * FROM `{w_lower}` WHERE id = $parent.{w_lower})[0] AS {w} "
+                    ));
                 }
             }
         }
@@ -559,9 +527,13 @@ where
     };
         let mut sql = format!("SELECT {select_clause} FROM {} ", quote_table(self.table));
 
-        if !self.state.conditions.is_empty() {
+        let mut conditions = self.state.conditions.clone();
+        if M::soft_delete() {
+            conditions.push("deleted_at IS NULL".to_string());
+        }
+        if !conditions.is_empty() {
             sql.push_str(" WHERE ");
-            sql.push_str(&self.state.conditions.join(" AND "));
+            sql.push_str(&conditions.join(" AND "));
         }
         if let Some(order) = self.order {
             sql.push_str(&format!(" ORDER BY {order}"));
@@ -576,7 +548,7 @@ where
             sql.push_str(" GROUP BY ");
             sql.push_str(&groups.join(", "));
         }
-        // dbg!(&sql);
+        dbg!(&sql);
         let mut query = self.repo.db.query(sql);
         for (k, v) in self.state.bindings {
             query = query.bind((k, v));
@@ -605,103 +577,32 @@ where
     where
         R: DeserializeOwned + SurrealValue,
     {
-        // Build the select clause
+                // Build the select clause
         let mut select = self
             .select
             .map(|s| s.join(", "))
             .unwrap_or_else(|| "*".to_string());
 
-        // let select_clause = if let Some(ref val) = self.value {
-        //     // Check if `with` contains the same value — if so, fetch full record
-        //     let is_record = self.with
-        //         .as_ref()
-        //         .map(|w| w.iter().any(|w| w == val))
-        //         .unwrap_or(false);
-
-        //     if is_record {
-        //         format!("VALUE {val}.*")
-        //     } else {
-        //         format!("VALUE {val}")
-        //     }
-        // } else {
-        //     if let Some(with) = self.with {
-        //         for w in with {
-        //             let w_lower = w.to_lowercase();
-        //             if let Some(rel) = Relation::get(M::table_name(), &w_lower) {
-        //                 match rel.relation_type {
-        //                     RelationType::BelongsToMany => {
-        //                         let child_table = rel.child_table.clone().unwrap_or_else(|| {
-        //                             pluralizer::singularize(&w)
-        //                         });
-        //                         let pivot_table = rel.pivot.clone().unwrap_or_default();
-        //                         let pivot_left_key = rel.pivot_left_key.clone().unwrap_or_default();
-        //                         let pivot_right_key = rel.pivot_right_key.clone().unwrap_or_default();
-        //                         let (pivot_fk, pivot_child_key) = if rel.is_left.unwrap_or(true) {
-        //                             (pivot_left_key.as_str(), pivot_right_key.as_str())
-        //                         } else {
-        //                             (pivot_right_key.as_str(), pivot_left_key.as_str())
-        //                         };
-        //                         // select.push_str(&format!(
-        //                         //     " , (SELECT * FROM {child_table} WHERE id IN \
-        //                         //     (SELECT VALUE {pivot_child_key} FROM {pivot_table} \
-        //                         //     WHERE {pivot_fk} = id)) AS {w} "//$parent.id
-        //                         // ));
-        //                         // select.push_str(&format!(" , (SELECT VALUE {pivot_child_key}.* FROM {} WHERE {pivot_fk} = $parent.id) AS {w} ", quote_table(&pivot_table)));
-        //                         select.push_str(&format!(
-        //                             " , (SELECT * OMIT {pivot_fk} FROM {} WHERE {pivot_fk} = $parent.id FETCH {pivot_child_key}) AS {w} ",
-        //                             quote_table(&pivot_table)
-        //                         ));
-        //                     }
-        //                     RelationType::HasMany => {
-        //                         let child_table = rel.child_table.clone().unwrap_or_else(|| {
-        //                             pluralizer::singularize(&w)
-        //                         });
-        //                         select.push_str(&format!(
-        //                             " , (SELECT * FROM {} WHERE {} = $parent.id) AS {w} ",
-        //                             quote_table(&child_table),
-        //                             M::table_name()
-        //                         ));
-        //                     }
-        //                     RelationType::BelongsTo => {
-        //                         select.push_str(&format!(" , {w}.* "));
-        //                     }
-        //                 }
-        //             } else if pluralizer::is_plural(&w) {
-        //                 let s = pluralizer::singularize(&w);
-        //                 select.push_str(&format!(
-        //                     " , (SELECT * FROM {} WHERE {} = $parent.id) AS {w} ",
-        //                     quote_table(&s),
-        //                     M::table_name()
-        //                 ));
-        //             } else {
-        //                 select.push_str(&format!(" , {w}.* "));
-        //             }
-        //         }
-        //     }
-        //     if let Some(ref nested) = self.nested {
-        //         select.push_str(&NestedRelation::generate_nested_sql(nested, M::table_name()));
-        //     }
-        //     select
-        // };
+        
         let select_clause = if let Some(ref val) = self.value {
-        let is_record = self.with
-            .as_ref()
-            .map(|w| w.iter().any(|w| w == val))
-            .unwrap_or(false);
-
-        if is_record {
-            format!("VALUE {val}.*")
-        } else {
-            format!("VALUE {val}")
-        }
+            let is_record = self.with
+                .as_ref()
+                .map(|w| w.iter().any(|w| w == val))
+                .unwrap_or(false);
+            if is_record {
+                format!("VALUE {val}.*")
+            } else {
+                format!("VALUE {val}")
+            }
     } else {
         // Collect which relation names are already handled by nested paths
         // so we don't double-emit them from self.with
+        // nested_roots: all top-level relation names already handled by nested paths
         let nested_roots: std::collections::HashSet<String> = self.nested
             .as_ref()
             .map(|n| n.iter().map(|r| r.name.to_lowercase()).collect())
             .unwrap_or_default();
-
+        // with() relations that aren't already covered by nested()
         if let Some(with) = self.with {
             for w in with {
                 let w_lower = w.to_lowercase();
@@ -709,7 +610,7 @@ where
                 // Skip if this relation is also present as a nested path
                 // (nested block below will handle it with full FETCH chain)
                 if nested_roots.contains(&w_lower) {
-                    continue;
+                    continue; // nested() already emits this
                 }
 
                 if let Some(rel) = Relation::get(M::table_name(), &w_lower) {
@@ -739,18 +640,28 @@ where
                             ));
                         }
                         RelationType::BelongsTo => {
-                            select.push_str(&format!(" , {w}.* "));
+                            // child_table holds the related table name (set by Relation::belongs_to)
+                            let related_table = rel.child_table.clone().unwrap_or_else(|| w_lower.clone());
+                            // fk is the field on Self that holds the RecordId
+                            // stored in rel.fk by the macro (from `fk = "..."` or defaults to relation name)
+                            let fk_col = rel.fk.clone().unwrap_or_else(|| w_lower.clone());
+                            select.push_str(&format!(
+                                " , (SELECT * FROM `{related_table}` WHERE id = $parent.{fk_col})[0] AS {w} "
+                            ));
                         }
                     }
-                } else if pluralizer::is_plural(&w) {
+                } else if pluralizer::is_plural(&w_lower) {
                     let s = pluralizer::singularize(&w);
                     select.push_str(&format!(
-                        " , (SELECT * FROM {} WHERE {} = $parent.id) AS {w} ",
-                        quote_table(&s),
+                        " , (SELECT * FROM `{s}` WHERE {} = $parent.id) AS {w} ",
+                        // quote_table(&s),
                         M::table_name()
                     ));
                 } else {
-                    select.push_str(&format!(" , {w}.* "));
+                    // select.push_str(&format!(" , {w}.* "));
+                    select.push_str(&format!(
+                        " , (SELECT * FROM `{w_lower}` WHERE id = $parent.{w_lower})[0] AS {w} "
+                    ));
                 }
             }
         }
@@ -763,9 +674,13 @@ where
     };
         let mut sql = format!("SELECT {select_clause} FROM {} ", quote_table(self.table));
 
-        if !self.state.conditions.is_empty() {
+        let mut conditions = self.state.conditions.clone();
+        if M::soft_delete() {
+            conditions.push("deleted_at IS NULL".to_string());
+        }
+        if !conditions.is_empty() {
             sql.push_str(" WHERE ");
-            sql.push_str(&self.state.conditions.join(" AND "));
+            sql.push_str(&conditions.join(" AND "));
         }
         if let Some(order) = self.order {
             sql.push_str(&format!(" ORDER BY {order}"));
@@ -781,7 +696,7 @@ where
             sql.push_str(&groups.join(", "));
         }
         // dbg!(Relation::read().get("article"));
-        // dbg!(&sql);
+        dbg!(&sql);
         let mut query = self.repo.db.query(sql);
         for (k, v) in self.state.bindings {
             query = query.bind((k, v));
@@ -799,9 +714,13 @@ where
         let select = self.select.map(|s| s.join(", ")).unwrap_or_else(|| "*".to_string());
         let mut sql = format!("SELECT {select} FROM {} ", quote_table(self.table));
 
-        if !self.state.conditions.is_empty() {
+        let mut conditions = self.state.conditions.clone();
+        if M::soft_delete() {
+            conditions.push("deleted_at IS NULL".to_string());
+        }
+        if !conditions.is_empty() {
             sql.push_str(" WHERE ");
-            sql.push_str(&self.state.conditions.join(" AND "));
+            sql.push_str(&conditions.join(" AND "));
         }
         sql.push_str(" LIMIT 1");
         let mut query = self.repo.db.query(sql);
@@ -816,9 +735,13 @@ where
     pub async fn count(self) -> Result<u64, ErrorIO> {
         let mut sql = format!("SELECT VALUE count() FROM {}", quote_table(self.table));
 
-        if !self.state.conditions.is_empty() {
+        let mut conditions = self.state.conditions.clone();
+        if M::soft_delete() {
+            conditions.push("deleted_at IS NULL".to_string());
+        }
+        if !conditions.is_empty() {
             sql.push_str(" WHERE ");
-            sql.push_str(&self.state.conditions.join(" AND "));
+            sql.push_str(&conditions.join(" AND "));
         }
 
         let mut query = self.repo.db.query(sql);
@@ -838,9 +761,13 @@ where
     pub async fn sum(self, field: &str) -> Result<f64, ErrorIO> {
         let mut sql = format!("SELECT math::sum({field}) FROM {}", quote_table(self.table));
 
-        if !self.state.conditions.is_empty() {
+        let mut conditions = self.state.conditions.clone();
+        if M::soft_delete() {
+            conditions.push("deleted_at IS NULL".to_string());
+        }
+        if !conditions.is_empty() {
             sql.push_str(" WHERE ");
-            sql.push_str(&self.state.conditions.join(" AND "));
+            sql.push_str(&conditions.join(" AND "));
         }
 
         let mut query = self.repo.db.query(sql);
@@ -855,9 +782,13 @@ where
     pub async fn avg(self, field: &str) -> Result<f64, ErrorIO> {
         let mut sql = format!("SELECT math::mean({field}) FROM {}", quote_table(self.table));
 
-        if !self.state.conditions.is_empty() {
+        let mut conditions = self.state.conditions.clone();
+        if M::soft_delete() {
+            conditions.push("deleted_at IS NULL".to_string());
+        }
+        if !conditions.is_empty() {
             sql.push_str(" WHERE ");
-            sql.push_str(&self.state.conditions.join(" AND "));
+            sql.push_str(&conditions.join(" AND "));
         }
 
         let mut query = self.repo.db.query(sql);
@@ -908,15 +839,19 @@ impl<'a, M> QueryBuilder<'a, M, Insert<Filled>>
                 sql.push_str(&self.sets.join(", "));
             }
 
-            if !self.state.conditions.is_empty() {
+            let mut conditions = self.state.conditions.clone();
+            if M::soft_delete() {
+                conditions.push("deleted_at IS NULL".to_string());
+            }
+            if !conditions.is_empty() {
                 sql.push_str(" WHERE ");
-                sql.push_str(&self.state.conditions.join(" AND "));
+                sql.push_str(&conditions.join(" AND "));
             }
 
             sql.push_str(" RETURN *");
             sql
         };
-        // dbg!(&sql);
+        dbg!(&sql);
         // dbg!(&self.state.bindings);  // add this line
         let mut query = self.repo.db.query(sql);
         for (k, v) in self.state.bindings {
@@ -950,9 +885,13 @@ impl<'a, M> QueryBuilder<'a, M, Update<(Filled, Filtered)>>
             sql.push_str(&self.sets.join(", "));
         }
 
-        if !self.state.conditions.is_empty() {
+        let mut conditions = self.state.conditions.clone();
+        if M::soft_delete() {
+            conditions.push("deleted_at IS NULL".to_string());
+        }
+        if !conditions.is_empty() {
             sql.push_str(" WHERE ");
-            sql.push_str(&self.state.conditions.join(" AND "));
+            sql.push_str(&conditions.join(" AND "));
         }
 
         sql.push_str(" RETURN *");
