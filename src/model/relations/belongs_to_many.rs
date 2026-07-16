@@ -41,50 +41,96 @@ where
     }
 }
 
-
 impl<'a, P, Child, Parent> BelongsToMany<'a, P, Child, Parent>
 where
-    P: Pivot ,
+    P: Pivot,
     Child: Model,
     Parent: Model,
 {
-    /// Attach single relation
-pub async fn attach(&self, related_id: RecordId) -> Result<(), ErrorIO> {
-    let pivot = if self.is_left {
-        P::new(self.parent_id.clone(), related_id)
-    } else {
-        P::new(related_id, self.parent_id.clone())
-    };
+    /// Attach a simple pivot with no extra data
+    pub async fn attach(&self, related_id: RecordId) -> Result<(), ErrorIO>
+    where
+        P: Pivot<Extra = ()>,
+    {
+        let pivot = if self.is_left {
+            P::new(self.parent_id.clone(), related_id, ())
+        } else {
+            P::new(related_id, self.parent_id.clone(), ())
+        };
 
-    Query::<P,Insert>::new(self.repo)
-        .values(pivot)
-        .exec::<P>()
-        .await?;
+        Query::<P, Insert>::new(self.repo)
+            .values(pivot)
+            .exec::<P>()
+            .await?;
 
-    Ok(())
+        Ok(())
+    }
+
+    /// Attach a pivot with extra data supplied directly
+    pub async fn attach_with(&self, related_id: RecordId, extra: P::Extra) -> Result<(), ErrorIO>
+    {
+        let pivot = if self.is_left {
+            P::new(self.parent_id.clone(), related_id, extra)
+        } else {
+            P::new(related_id, self.parent_id.clone(), extra)
+        };
+
+        Query::<P, Insert>::new(self.repo)
+            .values(pivot)
+            .exec::<P>()
+            .await?;
+
+        Ok(())
+    }
 }
 
-pub async fn attach_with<F>(&self, related_id: RecordId, builder: F) -> Result<(), ErrorIO>
-where
-    F: FnOnce(P) -> P,
-{
-    let pivot = if self.is_left {
-        P::new(self.parent_id.clone(), related_id)
-    } else {
-        P::new(related_id, self.parent_id.clone())
-    };
+// impl<'a, P, Child, Parent> BelongsToMany<'a, P, Child, Parent>
+// where
+//     P: Pivot ,
+//     Child: Model,
+//     Parent: Model,
+// {
+//     /// Attach single relation
+// pub async fn attach<Pi>(&self, related_id: RecordId) -> Result<(), ErrorIO>
+// where
+//     Pi: Pivot<Extra = ()>,
+// {
+//     let pivot = if self.is_left {
+//         Pi::new_with(self.parent_id.clone(), related_id,())
+//     } else {
+//         Pi::new_with(related_id, self.parent_id.clone(),())
+//     };
 
-    let pivot = builder(pivot);
+//     Query::<P,Insert>::new(self.repo)
+//         .values(pivot)
+//         .exec::<P>()
+//         .await?;
 
-    Query::<P,Insert>::new(self.repo)
-        .values(pivot)
-        .exec::<P>()
-        .await?;
+//     Ok(())
+// }
 
-    Ok(())
-}
+// pub async fn attach_with<F>(&self, related_id: RecordId, builder: F) -> Result<(), ErrorIO>
+// where
+//     F: FnOnce(P) -> P,
+// {
+//     let pivot = if self.is_left {
+//         // P::new(self.parent_id.clone(), related_id)
+//         P::new_with(self.parent_id.clone(), related_id,())
+//     } else {
+//         P::new(related_id, self.parent_id.clone())
+//     };
 
-}
+//     let pivot = builder(pivot);
+
+//     Query::<P,Insert>::new(self.repo)
+//         .values(pivot)
+//         .exec::<P>()
+//         .await?;
+
+//     Ok(())
+// }
+
+// }
 
 impl<'a, P, Child, Parent> BelongsToMany<'a, P, Child, Parent>
 where

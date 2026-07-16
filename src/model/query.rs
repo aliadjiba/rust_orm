@@ -6,16 +6,6 @@ use std::{marker::PhantomData};
 use crate::{model::{Page, SqlState, model::Model, relations::{NestedRelation, Relation, RelationType}}, pluralizer, repository::Repo};
 use crate::error::ErrorIO;
 
-// fn quote_table(name: &str) -> String {
-//     // Reserved words in SurrealDB that need escaping
-//     const RESERVED: &[&str] = &["user", "order", "group", "select", "table"];
-    
-//     if RESERVED.contains(&name) {
-//         format!("⟨{}⟩", name)  // SurrealDB uses ⟨⟩ not backticks
-//     } else {
-//         name.to_string()
-//     }
-// }
 fn quote_table(name: &str) -> String {
     format!("{}", name)
 }
@@ -548,7 +538,7 @@ where
             sql.push_str(" GROUP BY ");
             sql.push_str(&groups.join(", "));
         }
-        dbg!(&sql);
+        // dbg!(&sql);
         let mut query = self.repo.db.query(sql);
         for (k, v) in self.state.bindings {
             query = query.bind((k, v));
@@ -696,7 +686,7 @@ where
             sql.push_str(&groups.join(", "));
         }
         // dbg!(Relation::read().get("article"));
-        dbg!(&sql);
+        //dbg!(&sql);
         let mut query = self.repo.db.query(sql);
         for (k, v) in self.state.bindings {
             query = query.bind((k, v));
@@ -851,7 +841,7 @@ impl<'a, M> QueryBuilder<'a, M, Insert<Filled>>
             sql.push_str(" RETURN *");
             sql
         };
-        dbg!(&sql);
+        //dbg!(&sql);
         // dbg!(&self.state.bindings);  // add this line
         let mut query = self.repo.db.query(sql);
         for (k, v) in self.state.bindings {
@@ -872,7 +862,7 @@ impl<'a, M> QueryBuilder<'a, M, Update<(Filled, Filtered)>>
     where 
     M: Model
 { 
-     pub async fn exec<R>(self) -> Result<R, ErrorIO>
+    pub async fn exec<R>(self) -> Result<R, ErrorIO>
     where
         R: DeserializeOwned + SurrealValue,
     {
@@ -918,6 +908,31 @@ impl<'a, M> QueryBuilder<'a, M, Update<(Empty, Empty)>>
         self.state.conditions.push(format!("id = ${key}"));
         self.transition()
     }
+    pub fn filter<V: Serialize + SurrealValue>(
+        mut self,
+        field: &str,
+        value: V,
+    ) -> QueryBuilder<'a, M, Update<(Empty,Filtered)>> {
+        let key = self.state.bind(value);
+        self.state.conditions.push(format!("{field} = ${key}"));
+        self.transition()
+    }
+    pub fn where_<V: Serialize + SurrealValue>(
+        mut self,
+        field: &str,
+        condition:&str,
+        value: V,
+    ) -> QueryBuilder<'a, M, Update<(Empty,Filtered)>> {
+        let key = self.state.bind(value);
+        self.state.conditions.push(format!("{field} {condition} ${key}"));
+        self.transition()
+    }
+}
+
+impl<'a, M> QueryBuilder<'a, M, Update<(Empty, Filtered)>>
+    where 
+    M: Model
+{ 
     pub fn filter<V: Serialize + SurrealValue>(
         mut self,
         field: &str,

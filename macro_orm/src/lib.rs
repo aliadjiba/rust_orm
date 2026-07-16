@@ -851,13 +851,224 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
 // #[derive(PivotModel)]
 // ─────────────────────────────────────────────
 
-#[proc_macro_derive(PivotModel, attributes(table, left, right, timestamp))]
+// #[proc_macro_derive(PivotModel, attributes(left, right, belongs_to, table, timestamp))]
+// pub fn pivot_model_derive(input: TokenStream) -> TokenStream {
+//     let input       = parse_macro_input!(input as DeriveInput);
+//     let struct_name = input.ident.clone();
+//     let span        = struct_name.span();
+//     let mut table_name = struct_name.to_string().to_case(Case::Snake);
+//     let table_lit = syn::LitStr::new(&table_name, span);
+//     let fields = match &input.data {
+//         Data::Struct(data) => match &data.fields {
+//             Fields::Named(named) => named.named.iter().collect::<Vec<_>>(),
+//             _ => panic!("PivotModel requires named fields"),
+//         },
+//         _ => panic!("PivotModel can only be derived for structs"),
+//     };
+
+//     // ── detect #[left] / #[right] ────────────────────────────────────────────
+//     let mut left_field  = None;
+//     let mut right_field = None;
+//     for field in &fields {
+//         for attr in &field.attrs {
+//             if attr.path().is_ident("left")  { left_field  = Some(field.ident.clone().unwrap()); }
+//             if attr.path().is_ident("right") { right_field = Some(field.ident.clone().unwrap()); }
+//         }
+//     }
+//     let left_ident  = left_field.expect("Missing #[left] field");
+//     let right_ident = right_field.expect("Missing #[right] field");
+
+//     let has_timestamp = input.attrs.iter().any(|attr| attr.path().is_ident("timestamp"));
+
+//     // ── extra fields ─────────────────────────────────────────────────────────
+//     let extra_fields: Vec<(syn::Ident, &syn::Type)> = fields.iter().filter_map(|f| {
+//         let ident = f.ident.clone().unwrap();
+//         let ty    = &f.ty;
+//         if ident != left_ident
+//             && ident != right_ident
+//             && ident != "id"
+//             && !(has_timestamp && (ident == "created_at" || ident == "updated_at"))
+//         {
+//             Some((ident, ty))
+//         } else {
+//             None
+//         }
+//     }).collect();
+
+//     let extra_type = if extra_fields.is_empty() {
+//         quote! { () }
+//     } else {
+//         let types = extra_fields.iter().map(|(_, ty)| quote! { #ty });
+//         quote! { ( #( #types ),* ) }
+//     };
+
+//     let extra_destructure = if extra_fields.is_empty() {
+//         quote! {}
+//     } else {
+//         let idents = extra_fields.iter().map(|(id, _)| id);
+//         quote! { let ( #( #idents ),* ) = extra; }
+//     };
+
+//     let extra_assignments = extra_fields.iter().map(|(id, _)| quote! { #id: #id });
+
+//     let timestamp_init   = if has_timestamp {
+//         quote! { let now = chrono::Utc::now().to_rfc3339(); }
+//     } else {
+//         quote! {}
+//     };
+//     let timestamp_assign = if has_timestamp {
+//         quote! { created_at: now.clone(), updated_at: now, }
+//     } else {
+//         quote! {}
+//     };
+
+//     // ── table override ────────────────────────────────────────────────────────
+//     for attr in &input.attrs {
+//         if attr.path().is_ident("table") {
+//             if let Meta::NameValue(meta) = &attr.meta {
+//                 if let syn::Expr::Lit(expr_lit) = &meta.value {
+//                     if let Lit::Str(lit_str) = &expr_lit.lit {
+//                         table_name = lit_str.value();
+//                     }
+//                 }
+//             }
+//         }
+//     }
+
+//     // ── schema SQL — use emit_schema_fields (empty fk_map for pivots) ────────
+//     let empty_fk_map  = HashMap::new();
+//     // Inline pivot SQL (all pivot fields are statically typed — no dynamic sentinels expected)
+//     let mut pivot_sql = format!("DEFINE TABLE IF NOT EXISTS {} SCHEMAFULL;\n", table_name);
+//     for field in &fields {
+//         let ident = field.ident.as_ref().unwrap();
+//         if ident == "id" { continue; }
+//         let field_name = ident.to_string();
+//         let (surreal_type, _) = rust_type_to_surreal(
+//             &field_name, &field.ty, &table_name, &field_name, &empty_fk_map,
+//         );
+//         pivot_sql.push_str(&format!(
+//             "DEFINE FIELD IF NOT EXISTS {} ON {} TYPE {};\n",
+//             field_name, table_name, surreal_type,
+//         ));
+//     }
+
+//     let migration_literal = syn::LitStr::new(&pivot_sql, proc_macro2::Span::call_site());
+//     let table_literal     = syn::LitStr::new(&table_name, proc_macro2::Span::call_site());
+//     let expanded = quote! {
+//         impl orm::model::Model for #struct_name {
+//             fn table_name() -> &'static str { #table_literal }
+//             fn id(&self) -> surrealdb::types::RecordId { self.id.clone() }
+//             fn schema() -> String { #migration_literal.to_string() }
+//             fn check_no_dependents<'a>(
+//                 repo: &'a orm::repository::Repo,
+//                 id: &'a surrealdb::types::RecordId,
+//             ) -> impl std::future::Future<Output = Result<(), orm::error::ErrorIO>> + 'a {
+//                 async move {
+//                     use orm::model::relations::{Relation, RelationType};
+
+//                     let relations = Relation::get_all(#table_lit);
+//                     for rel in relations {
+//                         match rel.relation_type {
+//                             RelationType::HasMany => {
+//                                 let child_table = rel.child_table.as_deref().unwrap_or_default();
+//                                 let fk = rel.fk.as_deref().unwrap_or_default();
+//                                 if child_table.is_empty() || fk.is_empty() { continue; }
+
+//                                 let sql = format!(
+//                                     "SELECT count() FROM {} WHERE {} = $id GROUP ALL",
+//                                     child_table, fk
+//                                 );
+//                                 let mut res = repo.db
+//                                     .query(sql)
+//                                     .bind(("id", id.clone()))
+//                                     .await
+//                                     .map_err(orm::error::ErrorIO::from)?;
+
+//                                 let count: Option<i64> = res.take("count").map_err(orm::error::ErrorIO::from)?;
+//                                 if count.unwrap_or(0) > 0 {
+//                                     return Err(orm::error::ErrorIO::Conflict(format!(
+//                                         "Cannot delete: {} record(s) in `{}` depend on this item (via `{}`).",
+//                                         count.unwrap_or(0), child_table, fk
+//                                     )));
+//                                 }
+//                             }
+//                             RelationType::BelongsToMany => {
+//                                 let pivot = rel.pivot.as_deref().unwrap_or_default();
+//                                 let fk = if rel.is_left.unwrap_or(true) {
+//                                     rel.pivot_left_key.as_deref().unwrap_or_default()
+//                                 } else {
+//                                     rel.pivot_right_key.as_deref().unwrap_or_default()
+//                                 };
+//                                 if pivot.is_empty() || fk.is_empty() { continue; }
+
+//                                 let sql = format!(
+//                                     "SELECT count() FROM {} WHERE {} = $id GROUP ALL",
+//                                     pivot, fk
+//                                 );
+//                                 let mut res = repo.db
+//                                     .query(sql)
+//                                     .bind(("id", id.clone()))
+//                                     .await
+//                                     .map_err(orm::error::ErrorIO::from)?;
+
+//                                 let count: Option<i64> = res.take("count").map_err(orm::error::ErrorIO::from)?;
+//                                 if count.unwrap_or(0) > 0 {
+//                                     return Err(orm::error::ErrorIO::Conflict(format!(
+//                                         "Cannot delete: {} pivot record(s) in `{}` reference this item.",
+//                                         count.unwrap_or(0), pivot
+//                                     )));
+//                                 }
+//                             }
+//                             RelationType::BelongsTo => {}
+//                         }
+//                     }
+//                     Ok(())
+//                 }
+//             }
+//         }
+
+//         impl orm::model::Pivot for #struct_name {
+//             type Extra = #extra_type;
+
+//             fn left_key()  -> &'static str { stringify!(#left_ident) }
+//             fn right_key() -> &'static str { stringify!(#right_ident) }
+
+//             fn left_id(&self)  -> surrealdb::types::RecordId { self.#left_ident.clone() }
+//             fn right_id(&self) -> surrealdb::types::RecordId { self.#right_ident.clone() }
+
+//             fn new(
+//                 left:  surrealdb::types::RecordId,
+//                 right: surrealdb::types::RecordId,
+//                 extra: #extra_type,
+//             ) -> Self {
+//                 #extra_destructure
+//                 #timestamp_init
+//                 Self {
+//                     id: surrealdb::types::RecordId {
+//                         table: Self::table_name().into(),
+//                         key:   surrealdb::types::RecordIdKey::String(
+//                             surrealdb::types::Uuid::new_v4().to_string()
+//                         ),
+//                     },
+//                     #left_ident:  left,
+//                     #right_ident: right,
+//                     #( #extra_assignments, )*
+//                     #timestamp_assign
+//                 }
+//             }
+//         }
+//     };
+
+//     TokenStream::from(expanded)
+// }
+
+#[proc_macro_derive(PivotModel, attributes(left, right, belongs_to, table, timestamp))]
 pub fn pivot_model_derive(input: TokenStream) -> TokenStream {
     let input       = parse_macro_input!(input as DeriveInput);
     let struct_name = input.ident.clone();
     let span        = struct_name.span();
     let mut table_name = struct_name.to_string().to_case(Case::Snake);
-    let table_lit = syn::LitStr::new(&table_name, span);
+
     let fields = match &input.data {
         Data::Struct(data) => match &data.fields {
             Fields::Named(named) => named.named.iter().collect::<Vec<_>>(),
@@ -877,6 +1088,24 @@ pub fn pivot_model_derive(input: TokenStream) -> TokenStream {
     }
     let left_ident  = left_field.expect("Missing #[left] field");
     let right_ident = right_field.expect("Missing #[right] field");
+
+    // ── infer belongs_to struct names from field names ────────────────────────
+    // "article"            → Article
+    // "application_method" → ApplicationMethod
+    let left_pascal  = left_ident.to_string().to_case(Case::Pascal);
+    let right_pascal = right_ident.to_string().to_case(Case::Pascal);
+    let left_path: syn::Path  = syn::parse_str(&left_pascal)
+        .unwrap_or_else(|_| panic!("Could not parse `{}` as a path", left_pascal));
+    let right_path: syn::Path = syn::parse_str(&right_pascal)
+        .unwrap_or_else(|_| panic!("Could not parse `{}` as a path", right_pascal));
+
+    let left_str  = left_ident.to_string();
+    let right_str = right_ident.to_string();
+    let left_lit  = syn::LitStr::new(&left_str, span);
+    let right_lit = syn::LitStr::new(&right_str, span);
+
+    let left_fn  = syn::Ident::new(&left_str, span);
+    let right_fn = syn::Ident::new(&right_str, span);
 
     let has_timestamp = input.attrs.iter().any(|attr| attr.path().is_ident("timestamp"));
 
@@ -909,9 +1138,11 @@ pub fn pivot_model_derive(input: TokenStream) -> TokenStream {
         quote! { let ( #( #idents ),* ) = extra; }
     };
 
-    let extra_assignments = extra_fields.iter().map(|(id, _)| quote! { #id: #id });
+    let extra_assignments: Vec<_> = extra_fields.iter()
+        .map(|(id, _)| quote! { #id: #id })
+        .collect();
 
-    let timestamp_init   = if has_timestamp {
+    let timestamp_init = if has_timestamp {
         quote! { let now = chrono::Utc::now().to_rfc3339(); }
     } else {
         quote! {}
@@ -935,28 +1166,97 @@ pub fn pivot_model_derive(input: TokenStream) -> TokenStream {
         }
     }
 
-    // ── schema SQL — use emit_schema_fields (empty fk_map for pivots) ────────
-    
-    let empty_fk_map  = HashMap::new();
-    // Inline pivot SQL (all pivot fields are statically typed — no dynamic sentinels expected)
+    // ── schema SQL ────────────────────────────────────────────────────────────
+    let empty_fk_map = HashMap::new();
     let mut pivot_sql = format!("DEFINE TABLE IF NOT EXISTS {} SCHEMAFULL;\n", table_name);
     for field in &fields {
         let ident = field.ident.as_ref().unwrap();
         if ident == "id" { continue; }
         let field_name = ident.to_string();
-        let (surreal_type, _) = rust_type_to_surreal(
+        let (surreal_type, _extras) = rust_type_to_surreal(
             &field_name, &field.ty, &table_name, &field_name, &empty_fk_map,
         );
-        pivot_sql.push_str(&format!(
-            "DEFINE FIELD IF NOT EXISTS {} ON {} TYPE {};\n",
-            field_name, table_name, surreal_type,
-        ));
+
+        // skip sentinels — dynamic types (enums/structs) are resolved at runtime
+        // via SurrealType; we emit them as `string` as a safe static fallback
+        let resolved_type = match surreal_type.as_str() {
+            "__dynamic__"         => "string".to_string(),
+            "__dynamic_option__"  => "option<string>".to_string(),
+            other                 => other.to_string(),
+        };
+
+        let is_flexible = resolved_type == "object" || resolved_type == "option<object>";
+        if is_flexible {
+            pivot_sql.push_str(&format!(
+                "DEFINE FIELD IF NOT EXISTS {} ON {} FLEXIBLE TYPE {};\n",
+                field_name, table_name, resolved_type,
+            ));
+        } else {
+            pivot_sql.push_str(&format!(
+                "DEFINE FIELD IF NOT EXISTS {} ON {} TYPE {};\n",
+                field_name, table_name, resolved_type,
+            ));
+        }
     }
 
-    let migration_literal = syn::LitStr::new(&pivot_sql, proc_macro2::Span::call_site());
-    let table_literal     = syn::LitStr::new(&table_name, proc_macro2::Span::call_site());
+    let migration_literal = syn::LitStr::new(&pivot_sql, span);
+    // let table_literal     = syn::LitStr::new(&table_name, span);
 
+    // ── conditional new() — only when Extra = () ─────────────────────────────
+    let is_unit_extra = extra_fields.is_empty();
+    let _new_method = if is_unit_extra {
+        quote! {
+            fn new(left: surrealdb::types::RecordId, right: surrealdb::types::RecordId) -> Self {
+                Self::new_with(left, right, ())
+            }
+        }
+    } else {
+        quote! {}
+    };
+    let table_literal = syn::LitStr::new(&table_name, span);
+    let table_lit     = syn::LitStr::new(&table_name, span);
     let expanded = quote! {
+        impl #struct_name {
+            // ── auto belongs_to for left field ────────────────────────────────
+            pub fn #left_fn<'a, R>(
+                &self,
+                repo: &'a orm::repository::Repo,
+            ) -> impl std::future::Future<Output = Result<Option<R>, orm::error::ErrorIO>>
+            where
+                R: serde::de::DeserializeOwned + surrealdb::types::SurrealValue,
+            {
+                let rel = orm::model::BelongsTo::<'a, #left_path>::new(repo, self.#left_ident.clone());
+                rel.one::<R>()
+            }
+
+            // ── auto belongs_to for right field ───────────────────────────────
+            pub fn #right_fn<'a, R>(
+                &self,
+                repo: &'a orm::repository::Repo,
+            ) -> impl std::future::Future<Output = Result<Option<R>, orm::error::ErrorIO>>
+            where
+                R: serde::de::DeserializeOwned + surrealdb::types::SurrealValue,
+            {
+                let rel = orm::model::BelongsTo::<'a, #right_path>::new(repo, self.#right_ident.clone());
+                rel.one::<R>()
+            }
+
+            pub fn register_relations() {
+                orm::model::Relation::belongs_to_with_fk(
+                    #table_literal,
+                    #left_lit,
+                    <#left_path as orm::model::Model>::table_name(),
+                    #left_lit,
+                );
+                orm::model::Relation::belongs_to_with_fk(
+                    #table_literal,
+                    #right_lit,
+                    <#right_path as orm::model::Model>::table_name(),
+                    #right_lit,
+                );
+            }
+        }
+
         impl orm::model::Model for #struct_name {
             fn table_name() -> &'static str { #table_literal }
             fn id(&self) -> surrealdb::types::RecordId { self.id.clone() }
@@ -967,7 +1267,6 @@ pub fn pivot_model_derive(input: TokenStream) -> TokenStream {
             ) -> impl std::future::Future<Output = Result<(), orm::error::ErrorIO>> + 'a {
                 async move {
                     use orm::model::relations::{Relation, RelationType};
-
                     let relations = Relation::get_all(#table_lit);
                     for rel in relations {
                         match rel.relation_type {
@@ -975,7 +1274,6 @@ pub fn pivot_model_derive(input: TokenStream) -> TokenStream {
                                 let child_table = rel.child_table.as_deref().unwrap_or_default();
                                 let fk = rel.fk.as_deref().unwrap_or_default();
                                 if child_table.is_empty() || fk.is_empty() { continue; }
-
                                 let sql = format!(
                                     "SELECT count() FROM {} WHERE {} = $id GROUP ALL",
                                     child_table, fk
@@ -985,7 +1283,6 @@ pub fn pivot_model_derive(input: TokenStream) -> TokenStream {
                                     .bind(("id", id.clone()))
                                     .await
                                     .map_err(orm::error::ErrorIO::from)?;
-
                                 let count: Option<i64> = res.take("count").map_err(orm::error::ErrorIO::from)?;
                                 if count.unwrap_or(0) > 0 {
                                     return Err(orm::error::ErrorIO::Conflict(format!(
@@ -1002,7 +1299,6 @@ pub fn pivot_model_derive(input: TokenStream) -> TokenStream {
                                     rel.pivot_right_key.as_deref().unwrap_or_default()
                                 };
                                 if pivot.is_empty() || fk.is_empty() { continue; }
-
                                 let sql = format!(
                                     "SELECT count() FROM {} WHERE {} = $id GROUP ALL",
                                     pivot, fk
@@ -1012,7 +1308,6 @@ pub fn pivot_model_derive(input: TokenStream) -> TokenStream {
                                     .bind(("id", id.clone()))
                                     .await
                                     .map_err(orm::error::ErrorIO::from)?;
-
                                 let count: Option<i64> = res.take("count").map_err(orm::error::ErrorIO::from)?;
                                 if count.unwrap_or(0) > 0 {
                                     return Err(orm::error::ErrorIO::Conflict(format!(
@@ -1038,17 +1333,17 @@ pub fn pivot_model_derive(input: TokenStream) -> TokenStream {
             fn left_id(&self)  -> surrealdb::types::RecordId { self.#left_ident.clone() }
             fn right_id(&self) -> surrealdb::types::RecordId { self.#right_ident.clone() }
 
-            fn new_with(
+            fn new(
                 left:  surrealdb::types::RecordId,
                 right: surrealdb::types::RecordId,
-                extra: Self::Extra,
+                extra: #extra_type,
             ) -> Self {
                 #extra_destructure
                 #timestamp_init
                 Self {
                     id: surrealdb::types::RecordId {
                         table: Self::table_name().into(),
-                        key:   surrealdb::types::RecordIdKey::String(
+                        key: surrealdb::types::RecordIdKey::String(
                             surrealdb::types::Uuid::new_v4().to_string()
                         ),
                     },
@@ -1058,15 +1353,12 @@ pub fn pivot_model_derive(input: TokenStream) -> TokenStream {
                     #timestamp_assign
                 }
             }
-
-            fn new(left: surrealdb::types::RecordId, right: surrealdb::types::RecordId) -> Self {
-                Self::new_with(left, right, Default::default())
-            }
         }
     };
 
     TokenStream::from(expanded)
 }
+
 
 // ─────────────────────────────────────────────────────────────
 //  Backward-compat shims (deprecated — prefer SurrealNested)

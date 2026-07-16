@@ -18,8 +18,8 @@ pub trait Pivot: Model + Send + Sync + Clone + Debug {
     fn left_id(&self) -> RecordId;
     fn right_id(&self) ->RecordId;
 
-    fn new_with(left: RecordId, right: RecordId, extra: Self::Extra) -> Self;
-    fn new(left: RecordId, right: RecordId) -> Self {
-        Self::new_with(left, right, Self::Extra::default())
-    }
+    fn new(left: RecordId, right: RecordId, extra: Self::Extra) -> Self;
+    // fn new(left: RecordId, right: RecordId) -> Self {
+    //     Self::new_with(left, right, Self::Extra::default())
+    // }
 }
