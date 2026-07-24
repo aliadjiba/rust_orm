@@ -753,7 +753,7 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
             pub fn save<'a>(self, repo: &'a orm::repository::Repo)
                 -> impl std::future::Future<Output = Result<Self, orm::error::ErrorIO>> + 'a
             {
-                let query = orm::model::Query::<Self, orm::model::query::Update>::new(repo);
+                let query = orm::model::Query::<Self, orm::model::query::Upsert>::new(repo);
                 query.find(self.id.clone()).values(self).exec::<Self>()
             }
             #delete_methods

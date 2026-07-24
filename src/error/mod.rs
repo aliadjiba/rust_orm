@@ -82,6 +82,21 @@ macro_rules! define_errors {
                 ErrorIO::Internal(err.to_string())
             }
         }
+        impl From<lettre::error::Error> for ErrorIO {
+            fn from(err: lettre::error::Error) -> Self {
+                match err {
+                    lettre::error::Error::MissingFrom => Self::BadRequest("missing source address, invalid envelope".into()),
+                    lettre::error::Error::MissingTo => Self::BadRequest("missing destination address, invalid envelope".into()),
+                    lettre::error::Error::TooManyFrom => Self::BadRequest("there can only be one source address".into()),
+                    lettre::error::Error::EmailMissingAt => Self::BadRequest("missing @ in email address".into()),
+                    lettre::error::Error::EmailMissingLocalPart => Self::BadRequest("missing local part in email address".into()),
+                    lettre::error::Error::EmailMissingDomain => Self::Internal("missing domain in email address".into()),
+                    lettre::error::Error::CannotParseFilename => Self::Internal("could not parse attachment filename".into()),
+                    lettre::error::Error::NonAsciiChars => Self::BadRequest("contains non-ASCII chars".into()),
+                    lettre::error::Error::Io(e) => Self::Internal(e.to_string()),
+                }
+            }
+        }
 
         impl From<JoinError> for ErrorIO {
             fn from(err: JoinError) -> Self {

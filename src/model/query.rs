@@ -81,6 +81,18 @@ impl Fillable for Update<(Filled,  Empty)> {}
 impl Fillable for Update<(Filled,  Filtered)> {}
 
 
+//upsert------
+impl Filterable for Upsert<(Empty,   Empty)> {}
+impl Filterable for Upsert<(Empty,   Filtered)> {}
+impl Filterable for Upsert<(Filled,  Empty)> {}
+impl Filterable for Upsert<(Filled,  Filtered)> {}
+impl Fillable for Upsert<(Empty,   Empty)> {}
+impl Fillable for Upsert<(Empty,   Filtered)> {}
+impl Fillable for Upsert<(Filled,  Empty)> {}
+impl Fillable for Upsert<(Filled,  Filtered)> {}
+//----------
+
+
 #[allow(dead_code)]
 pub trait TransitionFiltered {
     type Output;
@@ -112,6 +124,17 @@ impl TransitionFilled for Update<(Filled,  Empty)>   { type Output = Update<(Fil
 impl TransitionFilled for Update<(Filled,  Filtered)>{ type Output = Update<(Filled, Filtered)>; }
 
 
+//upsert------
+impl TransitionFiltered for Upsert<(Empty,  Empty)>   { type Output = Upsert<(Empty,  Filtered)>; }
+impl TransitionFiltered for Upsert<(Empty,  Filtered)>{ type Output = Upsert<(Empty,  Filtered)>; }
+impl TransitionFiltered for Upsert<(Filled, Empty)>   { type Output = Upsert<(Filled, Filtered)>; }
+impl TransitionFiltered for Upsert<(Filled, Filtered)>{ type Output = Upsert<(Filled, Filtered)>; }
+
+impl TransitionFilled for Upsert<(Empty,   Empty)>    { type Output = Upsert<(Filled, Empty)>; }
+impl TransitionFilled for Upsert<(Empty,   Filtered)> { type Output = Upsert<(Filled, Filtered)>; }
+impl TransitionFilled for Upsert<(Filled,  Empty)>    { type Output = Upsert<(Filled, Empty)>; }
+impl TransitionFilled for Upsert<(Filled,  Filtered)> { type Output = Upsert<(Filled, Filtered)>; }
+//----------
 
 
 //transition
@@ -954,6 +977,107 @@ impl<'a, M> QueryBuilder<'a, M, Update<(Empty, Filtered)>>
     }
 }
 
+
+
+
+//upsert------
+
+impl<'a, M> QueryBuilder<'a, M, Upsert<(Empty, Empty)>>
+    where
+    M: Model
+{
+    pub fn find(mut self, value: RecordId) -> QueryBuilder<'a, M, Upsert<(Empty, Filtered)>> {
+        let key = self.state.bind(value);
+        self.state.conditions.push(format!("id = ${key}"));
+        self.transition()
+    }
+    pub fn filter<V: Serialize + SurrealValue>(
+        mut self,
+        field: &str,
+        value: V,
+    ) -> QueryBuilder<'a, M, Upsert<(Empty, Filtered)>> {
+        let key = self.state.bind(value);
+        self.state.conditions.push(format!("{field} = ${key}"));
+        self.transition()
+    }
+    pub fn where_<V: Serialize + SurrealValue>(
+        mut self,
+        field: &str,
+        condition: &str,
+        value: V,
+    ) -> QueryBuilder<'a, M, Upsert<(Empty, Filtered)>> {
+        let key = self.state.bind(value);
+        self.state.conditions.push(format!("{field} {condition} ${key}"));
+        self.transition()
+    }
+}
+
+impl<'a, M> QueryBuilder<'a, M, Upsert<(Empty, Filtered)>>
+    where
+    M: Model
+{
+    pub fn filter<V: Serialize + SurrealValue>(
+        mut self,
+        field: &str,
+        value: V,
+    ) -> QueryBuilder<'a, M, Upsert<(Empty, Filtered)>> {
+        let key = self.state.bind(value);
+        self.state.conditions.push(format!("{field} = ${key}"));
+        self.transition()
+    }
+    pub fn where_<V: Serialize + SurrealValue>(
+        mut self,
+        field: &str,
+        condition: &str,
+        value: V,
+    ) -> QueryBuilder<'a, M, Upsert<(Empty, Filtered)>> {
+        let key = self.state.bind(value);
+        self.state.conditions.push(format!("{field} {condition} ${key}"));
+        self.transition()
+    }
+}
+
+impl<'a, M> QueryBuilder<'a, M, Upsert<(Filled, Filtered)>>
+    where
+    M: Model
+{
+    pub async fn exec<R>(self) -> Result<R, ErrorIO>
+    where
+        R: DeserializeOwned + SurrealValue,
+    {
+        let mut sql = format!("UPSERT {}", quote_table(M::table_name()));
+
+        if let Some(content) = self.sets.iter().find(|s| s.starts_with("CONTENT")) {
+            sql.push_str(&format!(" {content}"));
+        } else if !self.sets.is_empty() {
+            sql.push_str(" SET ");
+            sql.push_str(&self.sets.join(", "));
+        }
+
+        let mut conditions = self.state.conditions.clone();
+        if M::soft_delete() {
+            conditions.push("deleted_at IS NULL".to_string());
+        }
+        if !conditions.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&conditions.join(" AND "));
+        }
+
+        sql.push_str(" RETURN *");
+
+        let mut query = self.repo.db.query(sql);
+        for (k, v) in self.state.bindings {
+            query = query.bind((k, v));
+        }
+
+        let mut res = query.await.map_err(ErrorIO::from)?;
+        res.take::<Option<R>>(0)
+            .map_err(ErrorIO::from)?
+            .ok_or_else(|| ErrorIO::Db("Upsert failed".into()))
+    }
+}
+
+//----------
 
 
 

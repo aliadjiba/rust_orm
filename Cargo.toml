@@ -30,3 +30,4 @@ async-trait = "0.1.89"
 macro_orm = { path = "./macro_orm" }
 actix-multipart = "0.7.2"
 image = "0.25.9"
+lettre = "0.11.22"
