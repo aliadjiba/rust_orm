@@ -22,6 +22,8 @@ pub struct QueryBuilder<'a, M, S> {
     sets: Vec<String>,
     table: &'static str,
 
+    upsert_target: Option<String>,
+
     group_by: Option<Vec<String>>,
     with: Option<Vec<String>>,
     nested: Option<Vec<NestedRelation>>,
@@ -153,6 +155,7 @@ where
             offset: self.offset,
             sets: self.sets,
             table: self.table,
+            upsert_target: self.upsert_target.clone(),
             group_by: self.group_by,
             with: self.with,
             nested: self.nested,
@@ -981,16 +984,16 @@ impl<'a, M> QueryBuilder<'a, M, Update<(Empty, Filtered)>>
 
 
 //upsert------
-
 impl<'a, M> QueryBuilder<'a, M, Upsert<(Empty, Empty)>>
     where
     M: Model
 {
     pub fn find(mut self, value: RecordId) -> QueryBuilder<'a, M, Upsert<(Empty, Filtered)>> {
         let key = self.state.bind(value);
-        self.state.conditions.push(format!("id = ${key}"));
+        self.upsert_target = Some(key);
         self.transition()
     }
+    // filter/where_ stay as-is for the non-id-target case
     pub fn filter<V: Serialize + SurrealValue>(
         mut self,
         field: &str,
@@ -1037,6 +1040,7 @@ impl<'a, M> QueryBuilder<'a, M, Upsert<(Empty, Filtered)>>
     }
 }
 
+
 impl<'a, M> QueryBuilder<'a, M, Upsert<(Filled, Filtered)>>
     where
     M: Model
@@ -1045,7 +1049,11 @@ impl<'a, M> QueryBuilder<'a, M, Upsert<(Filled, Filtered)>>
     where
         R: DeserializeOwned + SurrealValue,
     {
-        let mut sql = format!("UPSERT {}", quote_table(M::table_name()));
+        let mut sql = if let Some(ref target) = self.upsert_target {
+            format!("UPSERT ${target}")
+        } else {
+            format!("UPSERT {}", quote_table(M::table_name()))
+        };
 
         if let Some(content) = self.sets.iter().find(|s| s.starts_with("CONTENT")) {
             sql.push_str(&format!(" {content}"));
@@ -1054,13 +1062,16 @@ impl<'a, M> QueryBuilder<'a, M, Upsert<(Filled, Filtered)>>
             sql.push_str(&self.sets.join(", "));
         }
 
-        let mut conditions = self.state.conditions.clone();
-        if M::soft_delete() {
-            conditions.push("deleted_at IS NULL".to_string());
-        }
-        if !conditions.is_empty() {
-            sql.push_str(" WHERE ");
-            sql.push_str(&conditions.join(" AND "));
+        // Only apply WHERE when we're NOT targeting a specific record id
+        if self.upsert_target.is_none() {
+            let mut conditions = self.state.conditions.clone();
+            if M::soft_delete() {
+                conditions.push("deleted_at IS NULL".to_string());
+            }
+            if !conditions.is_empty() {
+                sql.push_str(" WHERE ");
+                sql.push_str(&conditions.join(" AND "));
+            }
         }
 
         sql.push_str(" RETURN *");
@@ -1070,10 +1081,24 @@ impl<'a, M> QueryBuilder<'a, M, Upsert<(Filled, Filtered)>>
             query = query.bind((k, v));
         }
 
-        let mut res = query.await.map_err(ErrorIO::from)?;
-        res.take::<Option<R>>(0)
-            .map_err(ErrorIO::from)?
-            .ok_or_else(|| ErrorIO::Db("Upsert failed".into()))
+                let res = query.await;
+        match res {
+            Ok(mut res)=>{
+                let res = res.take::<Option<R>>(0);
+                match res {
+                    Ok(Some(data))=>Ok(data),
+                    Ok(None)=>Err(ErrorIO::NotFound(format!("NotFound"))),
+                    Err(e)=>{
+                        dbg!(&e);
+                        Err(ErrorIO::Internal(format!("Upsert failed: {}",e)))
+                    }
+                }
+            },
+            Err(e)=>{
+                dbg!(&e);
+                Err(ErrorIO::Internal(format!("Upsert failed: {}",e)))
+            }
+        }
     }
 }
 
@@ -1103,6 +1128,8 @@ where
             offset: self.offset,
 
             table: self.table,
+
+            upsert_target: None,
 
             group_by: self.group_by.clone(),
             with: self.with.clone(),
@@ -1137,6 +1164,8 @@ where
 
             table: M::table_name(),
             
+            upsert_target: None,
+
             group_by: None,
             with: None,
             nested: None,
