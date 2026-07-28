@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-
+use serde_json::Value;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
@@ -45,7 +45,6 @@ fn rust_type_to_surreal(
     ty: &Type,
     table_name: &str,
     field_prefix: &str,
-    // Map of field_name -> related table name, built from #[belongs_to] attrs
     fk_map: &HashMap<String, String>,
 ) -> (String, Vec<String>) {
     match ty {
@@ -53,21 +52,22 @@ fn rust_type_to_surreal(
             let segment = type_path.path.segments.last().unwrap();
             let ident = segment.ident.to_string();
             match ident.as_str() {
-                "String" => ("string".to_string(), vec![]),
-                "bool"   => ("bool".to_string(),   vec![]),
+                "String"  => ("string".to_string(), vec![]),
+                "bool"    => ("bool".to_string(),   vec![]),
                 "i8" | "i16" | "i32" | "i64" |
                 "u8" | "u16" | "u32" | "u64" |
                 "usize" | "isize" => ("int".to_string(), vec![]),
-                "f32" | "f64" => ("float".to_string(), vec![]),
+                "f32" | "f64"     => ("float".to_string(), vec![]),
+
+                // ── serde_json::Value → any ───────────────────────────────────
+                "Value" => ("any".to_string(), vec![]),
 
                 "RecordId" => {
                     if field_name == "id" {
                         ("record".to_string(), vec![])
                     } else if let Some(related_table) = fk_map.get(field_name) {
-                        // FK to a known related table — emit record<table>
                         (format!("record<{}>", related_table), vec![])
                     } else {
-                        // Generic FK — keep old behaviour
                         (format!("record<{}>", field_name), vec![])
                     }
                 }
@@ -97,7 +97,7 @@ fn rust_type_to_surreal(
                     ("array".to_string(), vec![])
                 }
 
-                // Unknown type → nested object/enum resolved at runtime via SurrealType trait
+                // Unknown type → nested object/enum resolved at runtime
                 _ => ("__dynamic__".to_string(), vec![ident.clone()]),
             }
         }
